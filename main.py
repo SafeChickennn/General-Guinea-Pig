@@ -2,6 +2,7 @@ import sqlite3
 import discord
 from discord.ext import commands
 import os
+from datetime import datetime, timedelta
 
 # ========================
 # DATABASE SETUP
@@ -10,14 +11,15 @@ import os
 conn = sqlite3.connect("bot.db")
 cursor = conn.cursor()
 
-cursor.execute(""""
+cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
     xp INTEGER DEFAULT 0,
     rank INTEGER DEFAULT 1,
-    streak INTEGER DEFAULT 0
+    streak INTEGER DEFAULT 0,
+    last_quest_date TEXT
 )
-"""")
+""")
 conn.commit()
 
 # ========================
@@ -70,16 +72,13 @@ def get_user(user_id):
 
     return user
 
-
 def update_xp(user_id, amount):
     cursor.execute("UPDATE users SET xp = xp + ? WHERE user_id = ?", (amount, user_id))
     conn.commit()
 
-
 def set_rank(user_id, rank):
     cursor.execute("UPDATE users SET rank = ? WHERE user_id = ?", (rank, user_id))
     conn.commit()
-
 
 def get_rank_from_xp(xp):
     if xp >= 1000:
@@ -93,10 +92,8 @@ def get_rank_from_xp(xp):
     else:
         return 1
 
-
 async def assign_rank_role(member, rank_number):
     rank_name = RANKS.get(rank_number)
-
     if not rank_name:
         return
 
@@ -122,6 +119,24 @@ async def assign_rank_role(member, rank_number):
         except:
             pass
 
+def update_streak(user_id):
+    cursor.execute("SELECT last_quest_date, streak FROM users WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    today = datetime.utcnow().date()
+    streak = result[1]
+    last_date = result[0]
+
+    if last_date:
+        last_date = datetime.strptime(last_date, "%Y-%m-%d").date()
+        if today > last_date:
+            streak += 1
+    else:
+        streak = 1
+
+    cursor.execute("UPDATE users SET streak = ?, last_quest_date = ? WHERE user_id = ?", 
+                   (streak, today.isoformat(), user_id))
+    conn.commit()
+    return streak
 
 # ========================
 # EVENTS
@@ -130,27 +145,22 @@ async def assign_rank_role(member, rank_number):
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
-
     for guild in bot.guilds:
         for member in guild.members:
             if member.bot:
                 continue
-
             user = get_user(member.id)
             xp = user[1]
             rank_number = get_rank_from_xp(xp)
             set_rank(member.id, rank_number)
             await assign_rank_role(member, rank_number)
 
-
 @bot.event
 async def on_member_join(member):
     if member.bot:
         return
-
     get_user(member.id)
     await assign_rank_role(member, 1)
-
 
 # ========================
 # COMMANDS
@@ -166,6 +176,7 @@ async def handle_quest(ctx, rank_key, quest_number):
 
     get_user(user_id)
     update_xp(user_id, quest["xp"])
+    streak = update_streak(user_id)
 
     cursor.execute("SELECT xp FROM users WHERE user_id = ?", (user_id,))
     total_xp = cursor.fetchone()[0]
@@ -173,7 +184,6 @@ async def handle_quest(ctx, rank_key, quest_number):
     new_rank = get_rank_from_xp(total_xp)
     set_rank(user_id, new_rank)
     await assign_rank_role(ctx.author, new_rank)
-
     rank_name = RANKS[new_rank]
 
     await ctx.send(
@@ -182,19 +192,17 @@ async def handle_quest(ctx, rank_key, quest_number):
         f"Quest: {quest['name']}\n"
         f"Reward: {quest['xp']} XP\n"
         f"⭐ Total XP: {total_xp}\n"
-        f"🏅 Rank: {rank_name}"
+        f"🏅 Rank: {rank_name}\n"
+        f"🔥 Current Streak: {streak}"
     )
-
 
 @bot.command()
 async def initiate(ctx, quest_number: str):
     await handle_quest(ctx, "initiate", quest_number)
 
-
 @bot.command()
 async def connector(ctx, quest_number: str):
     await handle_quest(ctx, "connector", quest_number)
-
 
 @bot.command(name="progress")
 async def progress(ctx):
@@ -203,14 +211,12 @@ async def progress(ctx):
     rank_number = user[2]
     rank_name = RANKS.get(rank_number, "Unknown")
     streak = user[3]
-
     await ctx.send(
         f"📊 **{ctx.author.display_name}'s Stats**\n"
         f"⭐ Total XP: {xp}\n"
-        f"🏅 Rank: {rank_name}"
-	f"🔥 Current Streak: {streak}"
+        f"🏅 Rank: {rank_name}\n"
+        f"🔥 Current Streak: {streak}"
     )
-
 
 # ========================
 # START BOT
