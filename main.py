@@ -92,8 +92,10 @@ def get_user(user_id):
 
 def log_xp(user_id, amount):
     timestamp = datetime.utcnow().isoformat()
-    cursor.execute("INSERT INTO xp_log (user_id, xp, timestamp) VALUES (?, ?, ?)",
-                   (user_id, amount, timestamp))
+    cursor.execute(
+        "INSERT INTO xp_log (user_id, xp, timestamp) VALUES (?, ?, ?)",
+        (user_id, amount, timestamp)
+    )
     conn.commit()
 
 def update_xp(user_id, amount):
@@ -126,7 +128,6 @@ async def assign_rank_role(member, rank_number):
     rank_role = discord.utils.get(guild.roles, name=rank_name)
 
     if not rank_role:
-        print(f"⚠ Role '{rank_name}' not found in server.")
         return
 
     for role in member.roles:
@@ -156,8 +157,10 @@ def update_streak(user_id):
     else:
         streak = 1
 
-    cursor.execute("UPDATE users SET streak = ?, last_quest_date = ? WHERE user_id = ?",
-                   (streak, today.isoformat(), user_id))
+    cursor.execute(
+        "UPDATE users SET streak = ?, last_quest_date = ? WHERE user_id = ?",
+        (streak, today.isoformat(), user_id)
+    )
     conn.commit()
     return streak
 
@@ -186,7 +189,7 @@ async def on_member_join(member):
     await assign_rank_role(member, 1)
 
 # ========================
-# QUEST HANDLER
+# QUEST SYSTEM
 # ========================
 
 async def handle_quest(ctx, rank_key, quest_number):
@@ -219,10 +222,6 @@ async def handle_quest(ctx, rank_key, quest_number):
         f"🔥 Current Streak: {streak}"
     )
 
-# ========================
-# QUEST COMMANDS
-# ========================
-
 @bot.command()
 async def initiate(ctx, quest_number: str):
     await handle_quest(ctx, "initiate", quest_number)
@@ -235,7 +234,7 @@ async def connector(ctx, quest_number: str):
 # PROFILE
 # ========================
 
-@bot.command(name="progress")
+@bot.command()
 async def progress(ctx):
     user = get_user(ctx.author.id)
     xp = user[1]
@@ -251,46 +250,48 @@ async def progress(ctx):
     )
 
 # ========================
-# LEADERBOARD COMMAND
+# LEADERBOARDS
 # ========================
 
-@bot.command()
-async def global_(ctx, arg: str):
-    if arg.lower() != "leaderboard":
+@bot.command(name="lb")
+async def leaderboard(ctx, category: str):
+    category = category.lower()
+
+    # GLOBAL
+    if category == "global":
+        cursor.execute("SELECT user_id, xp FROM users ORDER BY xp DESC")
+        results = cursor.fetchall()
+
+        embed = discord.Embed(title="🏆 Global Leaderboard (Total XP)", color=0xFFD700)
+        user_position = None
+
+        for index, (user_id, xp) in enumerate(results, start=1):
+            member = ctx.guild.get_member(user_id)
+            name = member.display_name if member else f"User {user_id}"
+
+            if index <= 10:
+                embed.add_field(name=f"#{index} — {name}", value=f"{xp} XP", inline=False)
+
+            if user_id == ctx.author.id:
+                user_position = (index, xp)
+
+        if user_position and user_position[0] > 10:
+            embed.add_field(
+                name="📍 Your Position",
+                value=f"#{user_position[0]} — {user_position[1]} XP",
+                inline=False
+            )
+
+        await ctx.send(embed=embed)
         return
 
-    cursor.execute("SELECT user_id, xp FROM users ORDER BY xp DESC")
-    results = cursor.fetchall()
+    # RANK WEEKLY
+    if category not in RANK_LOOKUP:
+        await ctx.send("❌ Invalid leaderboard category.")
+        return
 
-    embed = discord.Embed(title="🏆 Global Leaderboard (Total XP)", color=0xFFD700)
-
-    user_position = None
-
-    for index, (user_id, xp) in enumerate(results, start=1):
-        member = ctx.guild.get_member(user_id)
-        name = member.display_name if member else f"User {user_id}"
-
-        if index <= 10:
-            embed.add_field(name=f"#{index} — {name}", value=f"{xp} XP", inline=False)
-
-        if user_id == ctx.author.id:
-            user_position = (index, xp)
-
-    if user_position and user_position[0] > 10:
-        embed.add_field(
-            name="📍 Your Position",
-            value=f"#{user_position[0]} — {user_position[1]} XP",
-            inline=False
-        )
-
-    await ctx.send(embed=embed)
-
-# Rank Leaderboards: !initiate leaderboard, !explorer leaderboard, etc
-
-async def rank_leaderboard(ctx, rank_key):
-    rank_number = RANK_LOOKUP[rank_key]
+    rank_number = RANK_LOOKUP[category]
     rank_name = RANKS[rank_number]
-
     seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
 
     cursor.execute("""
@@ -303,12 +304,7 @@ async def rank_leaderboard(ctx, rank_key):
     """, (rank_number, seven_days_ago))
 
     results = cursor.fetchall()
-
-    embed = discord.Embed(
-        title=f"🏆 {rank_name} Leaderboard (Last 7 Days)",
-        color=0x00FFAA
-    )
-
+    embed = discord.Embed(title=f"🏆 {rank_name} Leaderboard (Last 7 Days)", color=0x00FFAA)
     user_position = None
 
     for index, (user_id, weekly_xp) in enumerate(results, start=1):
@@ -333,31 +329,6 @@ async def rank_leaderboard(ctx, rank_key):
         )
 
     await ctx.send(embed=embed)
-
-@bot.command()
-async def initiate_(ctx, arg: str):
-    if arg.lower() == "leaderboard":
-        await rank_leaderboard(ctx, "initiate")
-
-@bot.command()
-async def explorer(ctx, arg: str):
-    if arg.lower() == "leaderboard":
-        await rank_leaderboard(ctx, "explorer")
-
-@bot.command()
-async def connector_(ctx, arg: str):
-    if arg.lower() == "leaderboard":
-        await rank_leaderboard(ctx, "connector")
-
-@bot.command()
-async def leader(ctx, arg: str):
-    if arg.lower() == "leaderboard":
-        await rank_leaderboard(ctx, "leader")
-
-@bot.command()
-async def mentor(ctx, arg: str):
-    if arg.lower() == "leaderboard":
-        await rank_leaderboard(ctx, "mentor")
 
 # ========================
 # START BOT
