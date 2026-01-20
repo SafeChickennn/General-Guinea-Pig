@@ -195,17 +195,19 @@ async def connector(ctx, quest_number: str):
     await handle_quest(ctx, "connector", quest_number)
 
 
-@bot.command()
-async def xp(ctx):
+@bot.command(name="progress")
+async def progress(ctx):
     user = get_user(ctx.author.id)
     xp = user[1]
     rank_number = user[2]
     rank_name = RANKS.get(rank_number, "Unknown")
+    streak = user[3]
 
     await ctx.send(
-        f"📊 **{ctx.author.display_name}'s Profile**\n"
-        f"⭐ XP: {xp}\n"
+        f"📊 **{ctx.author.display_name}'s Stats**\n"
+        f"⭐ Total XP: {xp}\n"
         f"🏅 Rank: {rank_name}"
+	f"🔥 Current Streak: {streak}"
     )
 
 
