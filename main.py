@@ -42,6 +42,8 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+bot_ready = False  # prevents duplicate startup logic
+
 # ========================
 # GAME DATA
 # ========================
@@ -84,7 +86,10 @@ def get_user(user_id):
     user = cursor.fetchone()
 
     if not user:
-        cursor.execute("INSERT INTO users (user_id, rank) VALUES (?, ?)", (user_id, 1))
+        cursor.execute(
+            "INSERT INTO users (user_id, xp, rank, streak) VALUES (?, 0, 1, 0)",
+            (user_id,)
+        )
         conn.commit()
         return get_user(user_id)
 
@@ -170,7 +175,13 @@ def update_streak(user_id):
 
 @bot.event
 async def on_ready():
+    global bot_ready
+    if bot_ready:
+        return
+    bot_ready = True
+
     print(f"Logged in as {bot.user}")
+
     for guild in bot.guilds:
         for member in guild.members:
             if member.bot:
@@ -185,6 +196,7 @@ async def on_ready():
 async def on_member_join(member):
     if member.bot:
         return
+
     get_user(member.id)
     await assign_rank_role(member, 1)
 
@@ -257,6 +269,11 @@ async def progress(ctx):
 async def leaderboard(ctx, category: str):
     category = category.lower()
 
+    # ensure all members are in DB
+    for member in ctx.guild.members:
+        if not member.bot:
+            get_user(member.id)
+
     # GLOBAL
     if category == "global":
         cursor.execute("SELECT user_id, xp FROM users ORDER BY xp DESC")
@@ -292,18 +309,20 @@ async def leaderboard(ctx, category: str):
 
     rank_number = RANK_LOOKUP[category]
     rank_name = RANKS[rank_number]
+
     seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
 
     cursor.execute("""
-        SELECT users.user_id, SUM(xp_log.xp) as weekly_xp
-        FROM xp_log
-        JOIN users ON users.user_id = xp_log.user_id
-        WHERE users.rank = ? AND xp_log.timestamp >= ?
+        SELECT users.user_id, COALESCE(SUM(xp_log.xp), 0) as weekly_xp
+        FROM users
+        LEFT JOIN xp_log ON users.user_id = xp_log.user_id AND xp_log.timestamp >= ?
+        WHERE users.rank = ?
         GROUP BY users.user_id
         ORDER BY weekly_xp DESC
-    """, (rank_number, seven_days_ago))
+    """, (seven_days_ago, rank_number))
 
     results = cursor.fetchall()
+
     embed = discord.Embed(title=f"🏆 {rank_name} Leaderboard (Last 7 Days)", color=0x00FFAA)
     user_position = None
 
