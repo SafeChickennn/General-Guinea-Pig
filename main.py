@@ -124,6 +124,28 @@ def get_rank_from_xp(xp):
     else:
         return 1
 
+async def safe_add_role(member, role):
+    try:
+        await member.add_roles(role)
+        return True
+    except discord.Forbidden:
+        print(f"❌ Missing permissions to add role {role.name} to {member}")
+        return False
+    except Exception as e:
+        print(f"❌ Role add error: {e}")
+        return False
+
+async def safe_remove_role(member, role):
+    try:
+        await member.remove_roles(role)
+        return True
+    except discord.Forbidden:
+        print(f"❌ Missing permissions to remove role {role.name} from {member}")
+        return False
+    except Exception as e:
+        print(f"❌ Role remove error: {e}")
+        return False
+
 async def assign_rank_role(member, rank_number):
     rank_name = RANKS.get(rank_number)
     if not rank_name:
@@ -133,20 +155,15 @@ async def assign_rank_role(member, rank_number):
     rank_role = discord.utils.get(guild.roles, name=rank_name)
 
     if not rank_role:
+        print(f"⚠ Rank role '{rank_name}' not found")
         return
 
     for role in member.roles:
         if role.name in RANKS.values() and role != rank_role:
-            try:
-                await member.remove_roles(role)
-            except:
-                pass
+            await safe_remove_role(member, role)
 
     if rank_role not in member.roles:
-        try:
-            await member.add_roles(rank_role)
-        except:
-            pass
+        await safe_add_role(member, rank_role)
 
 def update_streak(user_id):
     cursor.execute("SELECT last_quest_date, streak FROM users WHERE user_id = ?", (user_id,))
@@ -179,26 +196,43 @@ async def on_ready():
     if bot_ready:
         return
     bot_ready = True
-    print(f"Logged in as {bot.user}")
+    print(f"✅ Logged in as {bot.user}")
 
 @bot.event
 async def on_member_join(member):
     if member.bot:
         return
 
+    print(f"👋 New member joined: {member}")
+
     get_user(member.id)
 
     guild = member.guild
     unranked_role = discord.utils.get(guild.roles, name="Unranked")
-    if unranked_role:
-        await member.add_roles(unranked_role)
 
-    welcome_channel = discord.utils.get(guild.text_channels, name="start-here")
-    if welcome_channel:
-        await welcome_channel.send(
-            f"👋 Welcome {member.mention}! Please choose your starting level below.",
+    if not unranked_role:
+        print("❌ Unranked role not found")
+        return
+
+    added = await safe_add_role(member, unranked_role)
+
+    if not added:
+        print("❌ Failed to assign Unranked role")
+        return
+
+    start_channel = discord.utils.get(guild.text_channels, name="start-here")
+
+    if not start_channel:
+        print("❌ start-here channel not found")
+        return
+
+    try:
+        await start_channel.send(
+            f"👋 Welcome {member.mention}! Please choose your starting level below:",
             view=RankSelectView(member)
         )
+    except discord.Forbidden:
+        print("❌ Missing permissions to send message in start-here")
 
 # ========================
 # RANK SELECTION VIEW
@@ -228,7 +262,7 @@ class RankSelectView(View):
         unranked_role = discord.utils.get(guild.roles, name="Unranked")
 
         if unranked_role:
-            await self.member.remove_roles(unranked_role)
+            await safe_remove_role(self.member, unranked_role)
 
         set_rank(self.member.id, rank_number)
 
