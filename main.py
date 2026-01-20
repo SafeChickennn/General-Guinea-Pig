@@ -10,13 +10,14 @@ import os
 conn = sqlite3.connect("bot.db")
 cursor = conn.cursor()
 
-cursor.execute("""
+cursor.execute(""""
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
     xp INTEGER DEFAULT 0,
-    rank INTEGER DEFAULT 1
+    rank INTEGER DEFAULT 1,
+    streak INTEGER DEFAULT 0
 )
-""")
+"""")
 conn.commit()
 
 # ========================
