@@ -1,6 +1,7 @@
 import sqlite3
 import discord
 from discord.ext import commands
+from discord.ui import View, Button
 import os
 from datetime import datetime, timedelta
 
@@ -41,8 +42,7 @@ intents.message_content = True
 intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
-
-bot_ready = False  # prevents duplicate startup logic
+bot_ready = False
 
 # ========================
 # GAME DATA
@@ -179,18 +179,7 @@ async def on_ready():
     if bot_ready:
         return
     bot_ready = True
-
     print(f"Logged in as {bot.user}")
-
-    for guild in bot.guilds:
-        for member in guild.members:
-            if member.bot:
-                continue
-            user = get_user(member.id)
-            xp = user[1]
-            rank_number = get_rank_from_xp(xp)
-            set_rank(member.id, rank_number)
-            await assign_rank_role(member, rank_number)
 
 @bot.event
 async def on_member_join(member):
@@ -198,7 +187,70 @@ async def on_member_join(member):
         return
 
     get_user(member.id)
-    await assign_rank_role(member, 1)
+
+    guild = member.guild
+    unranked_role = discord.utils.get(guild.roles, name="Unranked")
+    if unranked_role:
+        await member.add_roles(unranked_role)
+
+    welcome_channel = discord.utils.get(guild.text_channels, name="start-here")
+    if welcome_channel:
+        await welcome_channel.send(
+            f"👋 Welcome {member.mention}! Please choose your starting level below.",
+            view=RankSelectView(member)
+        )
+
+# ========================
+# RANK SELECTION VIEW
+# ========================
+
+class RankSelectView(View):
+    def __init__(self, member):
+        super().__init__(timeout=None)
+        self.member = member
+
+    @discord.ui.button(label="🟢 Start as Initiate", style=discord.ButtonStyle.success)
+    async def initiate_button(self, interaction: discord.Interaction, button: Button):
+        await self.assign_rank(interaction, 1, 0)
+
+    @discord.ui.button(label="🔵 Start as Explorer (100 XP)", style=discord.ButtonStyle.primary)
+    async def explorer_button(self, interaction: discord.Interaction, button: Button):
+        await self.assign_rank(interaction, 2, 100)
+
+    async def assign_rank(self, interaction, rank_number, bonus_xp):
+        if interaction.user != self.member:
+            await interaction.response.send_message(
+                "❌ This selection is not for you.", ephemeral=True
+            )
+            return
+
+        guild = interaction.guild
+        unranked_role = discord.utils.get(guild.roles, name="Unranked")
+
+        if unranked_role:
+            await self.member.remove_roles(unranked_role)
+
+        set_rank(self.member.id, rank_number)
+
+        if bonus_xp > 0:
+            update_xp(self.member.id, bonus_xp)
+
+        await assign_rank_role(self.member, rank_number)
+
+        await interaction.response.send_message(
+            f"✅ You are now an **{RANKS[rank_number]}**! Your journey begins now.",
+            ephemeral=True
+        )
+
+        tutorial_channel = discord.utils.get(guild.text_channels, name="tutorial")
+        if tutorial_channel:
+            await tutorial_channel.send(
+                f"🎓 Welcome {self.member.mention}! Here's how to get started:\n\n"
+                "🔹 Complete quests: `!initiate 1`\n"
+                "🔹 Check your progress: `!progress`\n"
+                "🔹 View leaderboards: `!lb global`\n\n"
+                "Start with your first quest today!"
+            )
 
 # ========================
 # QUEST SYSTEM
@@ -222,16 +274,13 @@ async def handle_quest(ctx, rank_key, quest_number):
     new_rank = get_rank_from_xp(total_xp)
     set_rank(user_id, new_rank)
     await assign_rank_role(ctx.author, new_rank)
-    rank_name = RANKS[new_rank]
 
     await ctx.send(
-        f"✅ **Quest Completed!**\n"
-        f"Player: {ctx.author.mention}\n"
-        f"Quest: {quest['name']}\n"
+        f"✅ Quest completed! **{quest['name']}**\n"
         f"Reward: {quest['xp']} XP\n"
-        f"⭐ Total XP: {total_xp}\n"
-        f"🏅 Rank: {rank_name}\n"
-        f"🔥 Current Streak: {streak}"
+        f"Total XP: {total_xp}\n"
+        f"Rank: {RANKS[new_rank]}\n"
+        f"Streak: {streak}"
     )
 
 @bot.command()
@@ -251,14 +300,13 @@ async def progress(ctx):
     user = get_user(ctx.author.id)
     xp = user[1]
     rank_number = user[2]
-    rank_name = RANKS.get(rank_number, "Unknown")
     streak = user[3]
 
     await ctx.send(
         f"📊 **{ctx.author.display_name}'s Stats**\n"
-        f"⭐ Total XP: {xp}\n"
-        f"🏅 Rank: {rank_name}\n"
-        f"🔥 Current Streak: {streak}"
+        f"XP: {xp}\n"
+        f"Rank: {RANKS[rank_number]}\n"
+        f"Streak: {streak}"
     )
 
 # ========================
@@ -269,40 +317,24 @@ async def progress(ctx):
 async def leaderboard(ctx, category: str):
     category = category.lower()
 
-    # ensure all members are in DB
     for member in ctx.guild.members:
         if not member.bot:
             get_user(member.id)
 
-    # GLOBAL
     if category == "global":
         cursor.execute("SELECT user_id, xp FROM users ORDER BY xp DESC")
         results = cursor.fetchall()
 
-        embed = discord.Embed(title="🏆 Global Leaderboard (Total XP)", color=0xFFD700)
-        user_position = None
+        embed = discord.Embed(title="🏆 Global Leaderboard", color=0xFFD700)
 
-        for index, (user_id, xp) in enumerate(results, start=1):
+        for index, (user_id, xp) in enumerate(results[:10], start=1):
             member = ctx.guild.get_member(user_id)
             name = member.display_name if member else f"User {user_id}"
-
-            if index <= 10:
-                embed.add_field(name=f"#{index} — {name}", value=f"{xp} XP", inline=False)
-
-            if user_id == ctx.author.id:
-                user_position = (index, xp)
-
-        if user_position and user_position[0] > 10:
-            embed.add_field(
-                name="📍 Your Position",
-                value=f"#{user_position[0]} — {user_position[1]} XP",
-                inline=False
-            )
+            embed.add_field(name=f"#{index} — {name}", value=f"{xp} XP", inline=False)
 
         await ctx.send(embed=embed)
         return
 
-    # RANK WEEKLY
     if category not in RANK_LOOKUP:
         await ctx.send("❌ Invalid leaderboard category.")
         return
@@ -323,29 +355,12 @@ async def leaderboard(ctx, category: str):
 
     results = cursor.fetchall()
 
-    embed = discord.Embed(title=f"🏆 {rank_name} Leaderboard (Last 7 Days)", color=0x00FFAA)
-    user_position = None
+    embed = discord.Embed(title=f"🏆 {rank_name} Leaderboard (7 Days)", color=0x00FFAA)
 
-    for index, (user_id, weekly_xp) in enumerate(results, start=1):
+    for index, (user_id, weekly_xp) in enumerate(results[:10], start=1):
         member = ctx.guild.get_member(user_id)
         name = member.display_name if member else f"User {user_id}"
-
-        if index <= 10:
-            embed.add_field(
-                name=f"#{index} — {name}",
-                value=f"{weekly_xp} XP (7 days)",
-                inline=False
-            )
-
-        if user_id == ctx.author.id:
-            user_position = (index, weekly_xp)
-
-    if user_position and user_position[0] > 10:
-        embed.add_field(
-            name="📍 Your Position",
-            value=f"#{user_position[0]} — {user_position[1]} XP (7 days)",
-            inline=False
-        )
+        embed.add_field(name=f"#{index} — {name}", value=f"{weekly_xp} XP", inline=False)
 
     await ctx.send(embed=embed)
 
