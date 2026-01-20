@@ -1,3 +1,21 @@
+import sqlite3
+from datetime import datetime, timedelta
+
+conn = sqlite3.connect("bot.db")
+cursor = conn.cursor()
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    user_id INTEGER PRIMARY KEY,
+    xp INTEGER DEFAULT 0,
+    level INTEGER DEFAULT 1,
+    streak INTEGER DEFAULT 0,
+    last_quest_date TEXT,
+    last_command_time TEXT
+)
+""")
+conn.commit()
+
 import discord
 from discord.ext import commands
 import os
@@ -21,8 +39,6 @@ QUESTS = {
     }
 }
 
-user_xp = {}
-
 def get_level(xp):
     if xp >= 500:
         return "Connector"
@@ -30,6 +46,36 @@ def get_level(xp):
         return "Explorer"
     else:
         return "Initiate"
+
+def get_user(user_id):
+    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+    user = cursor.fetchone()
+
+    if not user:
+        cursor.execute(
+            "INSERT INTO users (user_id) VALUES (?)",
+            (user_id,)
+        )
+        conn.commit()
+        return get_user(user_id)
+
+    return user
+
+
+def update_xp(user_id, amount):
+    cursor.execute("UPDATE users SET xp = xp + ? WHERE user_id = ?", (amount, user_id))
+    conn.commit()
+
+
+def set_last_command_time(user_id, time_str):
+    cursor.execute("UPDATE users SET last_command_time = ? WHERE user_id = ?", (time_str, user_id))
+    conn.commit()
+
+
+def get_last_command_time(user_id):
+    cursor.execute("SELECT last_command_time FROM users WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    return result[0] if result else None
 
 
 @bot.event
@@ -58,8 +104,6 @@ async def connector(ctx, quest_number: str):
         "xp": quest["xp"]
     }
 
-    await message.add_reaction("✅")
-
 
 @bot.event
 async def on_reaction_add(reaction, user):
@@ -79,8 +123,13 @@ async def on_reaction_add(reaction, user):
     user_id = claim["user_id"]
     xp = claim["xp"]
 
-    user_xp[user_id] = user_xp.get(user_id, 0) + xp
-    level = get_level(user_xp[user_id])
+    update_xp(user_id, xp)
+
+    cursor.execute("SELECT xp FROM users WHERE user_id = ?", (user_id,))
+    total_xp = cursor.fetchone()[0]
+
+    level = get_level(total_xp)
+
 
     member = message.guild.get_member(user_id)
 
