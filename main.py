@@ -92,17 +92,30 @@ async def connector(ctx, quest_number: str):
     quest = QUESTS["connector"][quest_number]
 
     message = await ctx.send(
-        f"📜 **Quest Claim Submitted**\n"
+        f"📜 **Quest Completed!**\n"
         f"Player: {ctx.author.mention}\n"
         f"Quest: {quest['name']}\n"
         f"Reward: {quest['xp']} XP\n\n"
-        f"Awaiting moderator approval..."
     )
 
     pending_claims[message.id] = {
         "user_id": ctx.author.id,
         "xp": quest["xp"]
     }
+
+@bot.command()
+async def xp(ctx):
+    user = get_user(ctx.author.id)
+    xp = user[1]
+    level = user[2]
+    streak = user[3]
+
+    await ctx.send(
+        f"📊 **{ctx.author.display_name}'s Profile**\n"
+        f"⭐ XP: {xp}\n"
+        f"🏅 Level: {level}\n"
+        f"🔥 Streak: {streak}"
+    )
 
 
 @bot.event
