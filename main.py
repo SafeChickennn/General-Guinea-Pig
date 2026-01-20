@@ -21,7 +21,6 @@ CREATE TABLE IF NOT EXISTS users (
 )
 """)
 
-# XP history for weekly leaderboards
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS xp_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -85,7 +84,7 @@ def get_user(user_id):
     user = cursor.fetchone()
 
     if not user:
-        cursor.execute("INSERT INTO users (user_id) VALUES (?)", (user_id,))
+        cursor.execute("INSERT INTO users (user_id, rank) VALUES (?, ?)", (user_id, 1))
         conn.commit()
         return get_user(user_id)
 
@@ -93,7 +92,7 @@ def get_user(user_id):
 
 def log_xp(user_id, amount):
     timestamp = datetime.utcnow().isoformat()
-    cursor.execute("INSERT INTO xp_log (user_id, xp, timestamp) VALUES (?, ?, ?)", 
+    cursor.execute("INSERT INTO xp_log (user_id, xp, timestamp) VALUES (?, ?, ?)",
                    (user_id, amount, timestamp))
     conn.commit()
 
@@ -157,7 +156,7 @@ def update_streak(user_id):
     else:
         streak = 1
 
-    cursor.execute("UPDATE users SET streak = ?, last_quest_date = ? WHERE user_id = ?", 
+    cursor.execute("UPDATE users SET streak = ?, last_quest_date = ? WHERE user_id = ?",
                    (streak, today.isoformat(), user_id))
     conn.commit()
     return streak
@@ -221,7 +220,7 @@ async def handle_quest(ctx, rank_key, quest_number):
     )
 
 # ========================
-# COMMANDS
+# QUEST COMMANDS
 # ========================
 
 @bot.command()
@@ -231,6 +230,10 @@ async def initiate(ctx, quest_number: str):
 @bot.command()
 async def connector(ctx, quest_number: str):
     await handle_quest(ctx, "connector", quest_number)
+
+# ========================
+# PROFILE
+# ========================
 
 @bot.command(name="progress")
 async def progress(ctx):
@@ -248,48 +251,44 @@ async def progress(ctx):
     )
 
 # ========================
-# LEADERBOARDS
+# LEADERBOARD COMMAND
 # ========================
 
 @bot.command()
-async def leaderboard(ctx, category: str):
-    category = category.lower()
-
-    # GLOBAL LEADERBOARD
-    if category == "global":
-        cursor.execute("SELECT user_id, xp FROM users ORDER BY xp DESC")
-        results = cursor.fetchall()
-
-        embed = discord.Embed(title="🏆 Global Leaderboard (Total XP)", color=0xFFD700)
-
-        user_position = None
-
-        for index, (user_id, xp) in enumerate(results, start=1):
-            member = ctx.guild.get_member(user_id)
-            name = member.display_name if member else f"User {user_id}"
-
-            if index <= 10:
-                embed.add_field(name=f"#{index} — {name}", value=f"{xp} XP", inline=False)
-
-            if user_id == ctx.author.id:
-                user_position = (index, xp)
-
-        if user_position and user_position[0] > 10:
-            embed.add_field(
-                name="📍 Your Position",
-                value=f"#{user_position[0]} — {user_position[1]} XP",
-                inline=False
-            )
-
-        await ctx.send(embed=embed)
+async def global_(ctx, arg: str):
+    if arg.lower() != "leaderboard":
         return
 
-    # RANK WEEKLY LEADERBOARD
-    if category not in RANK_LOOKUP:
-        await ctx.send("❌ Invalid leaderboard category.")
-        return
+    cursor.execute("SELECT user_id, xp FROM users ORDER BY xp DESC")
+    results = cursor.fetchall()
 
-    rank_number = RANK_LOOKUP[category]
+    embed = discord.Embed(title="🏆 Global Leaderboard (Total XP)", color=0xFFD700)
+
+    user_position = None
+
+    for index, (user_id, xp) in enumerate(results, start=1):
+        member = ctx.guild.get_member(user_id)
+        name = member.display_name if member else f"User {user_id}"
+
+        if index <= 10:
+            embed.add_field(name=f"#{index} — {name}", value=f"{xp} XP", inline=False)
+
+        if user_id == ctx.author.id:
+            user_position = (index, xp)
+
+    if user_position and user_position[0] > 10:
+        embed.add_field(
+            name="📍 Your Position",
+            value=f"#{user_position[0]} — {user_position[1]} XP",
+            inline=False
+        )
+
+    await ctx.send(embed=embed)
+
+# Rank Leaderboards: !initiate leaderboard, !explorer leaderboard, etc
+
+async def rank_leaderboard(ctx, rank_key):
+    rank_number = RANK_LOOKUP[rank_key]
     rank_name = RANKS[rank_number]
 
     seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
@@ -334,6 +333,31 @@ async def leaderboard(ctx, category: str):
         )
 
     await ctx.send(embed=embed)
+
+@bot.command()
+async def initiate_(ctx, arg: str):
+    if arg.lower() == "leaderboard":
+        await rank_leaderboard(ctx, "initiate")
+
+@bot.command()
+async def explorer(ctx, arg: str):
+    if arg.lower() == "leaderboard":
+        await rank_leaderboard(ctx, "explorer")
+
+@bot.command()
+async def connector_(ctx, arg: str):
+    if arg.lower() == "leaderboard":
+        await rank_leaderboard(ctx, "connector")
+
+@bot.command()
+async def leader(ctx, arg: str):
+    if arg.lower() == "leaderboard":
+        await rank_leaderboard(ctx, "leader")
+
+@bot.command()
+async def mentor(ctx, arg: str):
+    if arg.lower() == "leaderboard":
+        await rank_leaderboard(ctx, "mentor")
 
 # ========================
 # START BOT
