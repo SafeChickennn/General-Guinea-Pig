@@ -128,22 +128,14 @@ async def safe_add_role(member, role):
     try:
         await member.add_roles(role)
         return True
-    except discord.Forbidden:
-        print(f"❌ Missing permissions to add role {role.name} to {member}")
-        return False
-    except Exception as e:
-        print(f"❌ Role add error: {e}")
+    except:
         return False
 
 async def safe_remove_role(member, role):
     try:
         await member.remove_roles(role)
         return True
-    except discord.Forbidden:
-        print(f"❌ Missing permissions to remove role {role.name} from {member}")
-        return False
-    except Exception as e:
-        print(f"❌ Role remove error: {e}")
+    except:
         return False
 
 async def assign_rank_role(member, rank_number):
@@ -155,7 +147,6 @@ async def assign_rank_role(member, rank_number):
     rank_role = discord.utils.get(guild.roles, name=rank_name)
 
     if not rank_role:
-        print(f"⚠ Rank role '{rank_name}' not found")
         return
 
     for role in member.roles:
@@ -203,36 +194,26 @@ async def on_member_join(member):
     if member.bot:
         return
 
-    print(f"👋 New member joined: {member}")
-
     get_user(member.id)
 
     guild = member.guild
     unranked_role = discord.utils.get(guild.roles, name="Unranked")
 
-    if not unranked_role:
-        print("❌ Unranked role not found")
-        return
-
-    added = await safe_add_role(member, unranked_role)
-
-    if not added:
-        print("❌ Failed to assign Unranked role")
-        return
+    if unranked_role:
+        await safe_add_role(member, unranked_role)
 
     start_channel = discord.utils.get(guild.text_channels, name="start-here")
 
-    if not start_channel:
-        print("❌ start-here channel not found")
-        return
-
-    try:
+    if start_channel:
         await start_channel.send(
-            f"👋 Welcome {member.mention}! Please choose your starting level below:",
+            f"👋 Welcome {member.mention}!\n\n"
+            "**This server is a real-world social confidence game.**\n"
+            "You complete small challenges in real life, earn XP, level up, and build confidence step by step.\n\n"
+            "Choose your starting path:\n"
+            "🟢 **Initiate** — slower, gentler challenges\n"
+            "🔵 **Explorer** — for confident starters (instant 100 XP)\n",
             view=RankSelectView(member)
         )
-    except discord.Forbidden:
-        print("❌ Missing permissions to send message in start-here")
 
 # ========================
 # RANK SELECTION VIEW
@@ -272,18 +253,17 @@ class RankSelectView(View):
         await assign_rank_role(self.member, rank_number)
 
         await interaction.response.send_message(
-            f"✅ You are now an **{RANKS[rank_number]}**! Your journey begins now.",
+            f"✅ You are now an **{RANKS[rank_number]}**!",
             ephemeral=True
         )
 
-        tutorial_channel = discord.utils.get(guild.text_channels, name="tutorial")
-        if tutorial_channel:
-            await tutorial_channel.send(
-                f"🎓 Welcome {self.member.mention}! Here's how to get started:\n\n"
-                "🔹 Complete quests: `!initiate 1`\n"
-                "🔹 Check your progress: `!progress`\n"
-                "🔹 View leaderboards: `!lb global`\n\n"
-                "Start with your first quest today!"
+        welcome_channel = discord.utils.get(guild.text_channels, name="welcome")
+        if welcome_channel:
+            await welcome_channel.send(
+                f"🎉 Welcome {self.member.mention} to the community!\n\n"
+                "📜 Please read the rules in **#rules**\n"
+                "🎓 Learn how the game works in **#tutorial**\n\n"
+                "Your journey starts now — complete your first quest today!"
             )
 
 # ========================
