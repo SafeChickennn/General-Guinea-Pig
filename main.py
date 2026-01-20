@@ -2,7 +2,6 @@ import sqlite3
 import discord
 from discord.ext import commands
 import os
-from datetime import datetime
 
 # ========================
 # DATABASE SETUP
@@ -15,9 +14,7 @@ cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
     xp INTEGER DEFAULT 0,
-    rank INTEGER DEFAULT 1,
-    streak INTEGER DEFAULT 0,
-    last_quest_date TEXT
+    rank INTEGER DEFAULT 1
 )
 """)
 conn.commit()
@@ -37,6 +34,10 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # ========================
 
 QUESTS = {
+    "initiate": {
+        "1": {"name": "Smile at 3 people", "xp": 5},
+        "2": {"name": "Say hello to 5 people", "xp": 10},
+    },
     "connector": {
         "1": {"name": "Smile at 3 people", "xp": 5},
         "2": {"name": "Compliment someone's clothing", "xp": 15},
@@ -54,7 +55,7 @@ RANKS = {
 }
 
 # ========================
-# HELPER FUNCTIONS
+# HELPERS
 # ========================
 
 def get_user(user_id):
@@ -102,17 +103,23 @@ async def assign_rank_role(member, rank_number):
     rank_role = discord.utils.get(guild.roles, name=rank_name)
 
     if not rank_role:
-        print(f"Role '{rank_name}' not found in server.")
+        print(f"⚠ Role '{rank_name}' not found in server.")
         return
 
-    # Remove any other rank roles
+    # Remove other rank roles
     for role in member.roles:
         if role.name in RANKS.values() and role != rank_role:
-            await member.remove_roles(role)
+            try:
+                await member.remove_roles(role)
+            except:
+                pass
 
-    # Add correct rank role
+    # Add correct role
     if rank_role not in member.roles:
-        await member.add_roles(rank_role)
+        try:
+            await member.add_roles(rank_role)
+        except:
+            pass
 
 
 # ========================
@@ -123,7 +130,6 @@ async def assign_rank_role(member, rank_number):
 async def on_ready():
     print(f"Logged in as {bot.user}")
 
-    # Ensure all members have a rank
     for guild in bot.guilds:
         for member in guild.members:
             if member.bot:
@@ -149,28 +155,25 @@ async def on_member_join(member):
 # COMMANDS
 # ========================
 
-@bot.command()
-async def connector(ctx, quest_number: str):
-    if quest_number not in QUESTS["connector"]:
+async def handle_quest(ctx, rank_key, quest_number):
+    if quest_number not in QUESTS[rank_key]:
         await ctx.send("❌ Invalid quest number.")
         return
 
-    quest = QUESTS["connector"][quest_number]
+    quest = QUESTS[rank_key][quest_number]
     user_id = ctx.author.id
 
-    # Add XP
+    get_user(user_id)
     update_xp(user_id, quest["xp"])
 
-    # Fetch updated user
     cursor.execute("SELECT xp FROM users WHERE user_id = ?", (user_id,))
     total_xp = cursor.fetchone()[0]
 
-    # Update rank
     new_rank = get_rank_from_xp(total_xp)
     set_rank(user_id, new_rank)
     await assign_rank_role(ctx.author, new_rank)
 
-    rank_name = RANKS.get(new_rank, "Unknown")
+    rank_name = RANKS[new_rank]
 
     await ctx.send(
         f"✅ **Quest Completed!**\n"
@@ -183,19 +186,26 @@ async def connector(ctx, quest_number: str):
 
 
 @bot.command()
+async def initiate(ctx, quest_number: str):
+    await handle_quest(ctx, "initiate", quest_number)
+
+
+@bot.command()
+async def connector(ctx, quest_number: str):
+    await handle_quest(ctx, "connector", quest_number)
+
+
+@bot.command()
 async def xp(ctx):
     user = get_user(ctx.author.id)
     xp = user[1]
     rank_number = user[2]
-    streak = user[3]
-
     rank_name = RANKS.get(rank_number, "Unknown")
 
     await ctx.send(
         f"📊 **{ctx.author.display_name}'s Profile**\n"
         f"⭐ XP: {xp}\n"
-        f"🏅 Rank: {rank_name}\n"
-        f"🔥 Streak: {streak}"
+        f"🏅 Rank: {rank_name}"
     )
 
 
