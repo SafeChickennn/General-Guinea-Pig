@@ -152,6 +152,10 @@ async def assign_rank_role(member, rank_number):
         except:
             pass
 
+# ========================
+# STREAK HANDLING
+# ========================
+
 def update_streak(user_id):
     cursor.execute("SELECT last_quest_date, streak FROM users WHERE user_id = ?", (user_id,))
     last_date, streak = cursor.fetchone()
@@ -159,9 +163,17 @@ def update_streak(user_id):
 
     if last_date:
         last_date = datetime.strptime(last_date, "%Y-%m-%d").date()
-        if today > last_date:
+        delta_days = (today - last_date).days
+
+        if delta_days == 1:
+            # consecutive day, increment streak
             streak += 1
+        elif delta_days > 1:
+            # missed one or more days, reset streak
+            streak = 0
+        # if delta_days == 0: same day, streak doesn't change
     else:
+        # first quest ever
         streak = 1
 
     cursor.execute(
@@ -226,7 +238,7 @@ class RankSelectView(View):
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
-    # Removed persistent view to prevent double messages
+    bot.add_view(RankSelectView(0))
 
 @bot.event
 async def on_member_join(member):
@@ -238,7 +250,7 @@ async def on_member_join(member):
     guild = member.guild
 
     unranked_role = discord.utils.get(guild.roles, name="Unranked")
-    if unranked_role and unranked_role not in member.roles:
+    if unranked_role:
         try:
             await member.add_roles(unranked_role)
         except:
@@ -247,11 +259,6 @@ async def on_member_join(member):
     start_channel = discord.utils.get(guild.text_channels, name="start-here")
     if not start_channel:
         return
-
-    # Prevent duplicate onboarding messages
-    async for msg in start_channel.history(limit=50):
-        if member.mention in msg.content:
-            return
 
     view = RankSelectView(member.id)
 
@@ -271,27 +278,24 @@ async def on_member_join(member):
 # ========================
 
 async def handle_quest(ctx, rank_key, quest_number):
-    quest = QUESTS.get(rank_key, {}).get(quest_number)
-    if not quest:
+    if quest_number not in QUESTS[rank_key]:
         await ctx.send("❌ Invalid quest number.")
         return
 
+    quest = QUESTS[rank_key][quest_number]
     user_id = ctx.author.id
-    user = get_user(user_id)
-    current_rank = user[2]
 
+    get_user(user_id)
     add_xp(user_id, quest["xp"])
-    update_streak(user_id)
+    streak = update_streak(user_id)
 
     cursor.execute("SELECT xp FROM users WHERE user_id = ?", (user_id,))
     total_xp = cursor.fetchone()[0]
 
     new_rank = get_rank_from_xp(total_xp)
-    if new_rank > current_rank:
-        set_rank(user_id, new_rank)
-        await assign_rank_role(ctx.author, new_rank)
+    set_rank(user_id, new_rank)
+    await assign_rank_role(ctx.author, new_rank)
 
-    # Only one message per quest
     await ctx.send(
         f"✅ Quest completed!\n"
         f"Quest: {quest['name']}\n"
