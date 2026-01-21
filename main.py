@@ -42,7 +42,6 @@ intents.message_content = True
 intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
-bot_ready = False
 
 # ========================
 # GAME DATA
@@ -96,17 +95,22 @@ def get_user(user_id):
     return user
 
 def log_xp(user_id, amount):
-    timestamp = datetime.utcnow().isoformat()
     cursor.execute(
         "INSERT INTO xp_log (user_id, xp, timestamp) VALUES (?, ?, ?)",
-        (user_id, amount, timestamp)
+        (user_id, amount, datetime.utcnow().isoformat())
     )
     conn.commit()
 
-def update_xp(user_id, amount):
+def add_xp(user_id, amount):
+    """Quest XP — logged for leaderboards"""
     cursor.execute("UPDATE users SET xp = xp + ? WHERE user_id = ?", (amount, user_id))
     conn.commit()
     log_xp(user_id, amount)
+
+def add_bonus_xp(user_id, amount):
+    """Admin / onboarding XP — NOT logged"""
+    cursor.execute("UPDATE users SET xp = xp + ? WHERE user_id = ?", (amount, user_id))
+    conn.commit()
 
 def set_rank(user_id, rank):
     cursor.execute("UPDATE users SET rank = ? WHERE user_id = ?", (rank, user_id))
@@ -145,7 +149,6 @@ async def assign_rank_role(member, rank_number):
 
     guild = member.guild
     rank_role = discord.utils.get(guild.roles, name=rank_name)
-
     if not rank_role:
         return
 
@@ -159,6 +162,7 @@ async def assign_rank_role(member, rank_number):
 def update_streak(user_id):
     cursor.execute("SELECT last_quest_date, streak FROM users WHERE user_id = ?", (user_id,))
     result = cursor.fetchone()
+
     today = datetime.utcnow().date()
     streak = result[1]
     last_date = result[0]
@@ -183,10 +187,6 @@ def update_streak(user_id):
 
 @bot.event
 async def on_ready():
-    global bot_ready
-    if bot_ready:
-        return
-    bot_ready = True
     print(f"✅ Logged in as {bot.user}")
 
 @bot.event
@@ -205,15 +205,17 @@ async def on_member_join(member):
     start_channel = discord.utils.get(guild.text_channels, name="start-here")
 
     if start_channel:
-        await start_channel.send(
-            f"👋 Welcome {member.mention}!\n\n"
-            "**This server is a real-world social confidence game.**\n"
-            "You complete small challenges in real life, earn XP, level up, and build confidence step by step.\n\n"
+        view = RankSelectView(member)
+        msg = await start_channel.send(
+	    f"👋 Welcome {member.mention} to the Social Guinea Pigs!\n\n"
+            "This server is a **real-world** social confidence game. It's a place for people to step out of their comfort zone as they 	    	    complete **daily and weekly challenges** made to suit your own progression.\n"
+            "You complete these small challenges in real life, earn XP, rank up, and build confidence step by step.\n\n"
+	    "For those who want to start small, we recommend starting with the **Initiate Rank**. For those who want to build on their 		    existing social skills, we recommend choosing the **Explorer Rank**.\n"
             "Choose your starting path:\n"
             "🟢 **Initiate** — slower, gentler challenges\n"
-            "🔵 **Explorer** — for confident starters (instant 100 XP)\n",
-            view=RankSelectView(member)
+            "🔵 **Explorer** — for confident starters\n",
         )
+        view.message = msg
 
 # ========================
 # RANK SELECTION VIEW
@@ -223,6 +225,7 @@ class RankSelectView(View):
     def __init__(self, member):
         super().__init__(timeout=None)
         self.member = member
+        self.message = None
 
     @discord.ui.button(label="🟢 Start as Initiate", style=discord.ButtonStyle.success)
     async def initiate_button(self, interaction: discord.Interaction, button: Button):
@@ -234,9 +237,7 @@ class RankSelectView(View):
 
     async def assign_rank(self, interaction, rank_number, bonus_xp):
         if interaction.user != self.member:
-            await interaction.response.send_message(
-                "❌ This selection is not for you.", ephemeral=True
-            )
+            await interaction.response.send_message("❌ This selection is not for you.", ephemeral=True)
             return
 
         guild = interaction.guild
@@ -248,9 +249,15 @@ class RankSelectView(View):
         set_rank(self.member.id, rank_number)
 
         if bonus_xp > 0:
-            update_xp(self.member.id, bonus_xp)
+            add_bonus_xp(self.member.id, bonus_xp)
 
         await assign_rank_role(self.member, rank_number)
+
+        if self.message:
+            try:
+                await self.message.delete()
+            except:
+                pass
 
         await interaction.response.send_message(
             f"✅ You are now an **{RANKS[rank_number]}**!",
@@ -260,7 +267,7 @@ class RankSelectView(View):
         welcome_channel = discord.utils.get(guild.text_channels, name="welcome")
         if welcome_channel:
             await welcome_channel.send(
-                f"🎉 Welcome {self.member.mention} to the community!\n\n"
+                f"🎉 Welcome {self.member.mention}!\n\n"
                 "📜 Please read the rules in **#rules**\n"
                 "🎓 Learn how the game works in **#tutorial**\n\n"
                 "Your journey starts now — complete your first quest today!"
@@ -279,7 +286,7 @@ async def handle_quest(ctx, rank_key, quest_number):
     user_id = ctx.author.id
 
     get_user(user_id)
-    update_xp(user_id, quest["xp"])
+    add_xp(user_id, quest["xp"])
     streak = update_streak(user_id)
 
     cursor.execute("SELECT xp FROM users WHERE user_id = ?", (user_id,))
@@ -312,9 +319,7 @@ async def connector(ctx, quest_number: str):
 @bot.command()
 async def progress(ctx):
     user = get_user(ctx.author.id)
-    xp = user[1]
-    rank_number = user[2]
-    streak = user[3]
+    xp, rank_number, streak = user[1], user[2], user[3]
 
     await ctx.send(
         f"📊 **{ctx.author.display_name}'s Stats**\n"
@@ -377,6 +382,38 @@ async def leaderboard(ctx, category: str):
         embed.add_field(name=f"#{index} — {name}", value=f"{weekly_xp} XP", inline=False)
 
     await ctx.send(embed=embed)
+
+# ========================
+# ADMIN COMMANDS
+# ========================
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def givexp(ctx, member: discord.Member, amount: int):
+    if amount <= 0:
+        await ctx.send("❌ XP amount must be positive.")
+        return
+
+    get_user(member.id)
+    add_bonus_xp(member.id, amount)
+
+    cursor.execute("SELECT xp FROM users WHERE user_id = ?", (member.id,))
+    total_xp = cursor.fetchone()[0]
+
+    new_rank = get_rank_from_xp(total_xp)
+    set_rank(member.id, new_rank)
+    await assign_rank_role(member, new_rank)
+
+    await ctx.send(
+        f"✅ {member.mention} has been given **{amount} XP**.\n"
+        f"New Total XP: {total_xp}\n"
+        f"New Rank: {RANKS[new_rank]}"
+    )
+
+@givexp.error
+async def givexp_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ You do not have permission to use this command.")
 
 # ========================
 # START BOT
