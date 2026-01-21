@@ -226,7 +226,7 @@ class RankSelectView(View):
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
-    # Removed persistent view to avoid double messages
+    # Removed persistent view to prevent double messages
 
 @bot.event
 async def on_member_join(member):
