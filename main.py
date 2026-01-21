@@ -187,40 +187,43 @@ class RankSelectView(View):
     async def initiate_button(self, interaction: discord.Interaction, button: Button):
         await self.assign_rank(interaction, 1, 0)
 
-    @discord.ui.button(label="🔵 Start as Explorer (100 XP)", style=discord.ButtonStyle.primary, custom_id="rank_explorer")
+    @discord.ui.button(label="🔵 Start as Explorer", style=discord.ButtonStyle.primary, custom_id="rank_explorer")
     async def explorer_button(self, interaction: discord.Interaction, button: Button):
         await self.assign_rank(interaction, 2, 100)
 
     async def assign_rank(self, interaction: discord.Interaction, rank_number, bonus_xp):
-        if interaction.user.id != self.member_id:
-            await interaction.response.send_message("❌ This selection is not for you.", ephemeral=True)
-            return
+    if interaction.user.id != self.member_id:
+        await interaction.response.send_message("❌ This selection is not for you.", ephemeral=True)
+        return
 
-        member = interaction.user
-        guild = interaction.guild
+    # Acknowledge interaction immediately
+    await interaction.response.defer()
 
-        set_rank(member.id, rank_number)
+    member = interaction.user
+    guild = interaction.guild
 
-        if bonus_xp > 0:
-            add_bonus_xp(member.id, bonus_xp)
+    set_rank(member.id, rank_number)
 
-        await assign_rank_role(member, rank_number)
+    if bonus_xp > 0:
+        add_bonus_xp(member.id, bonus_xp)
 
-        # Delete onboarding message
-        try:
-            await interaction.message.delete()
-        except:
-            pass
+    await assign_rank_role(member, rank_number)
 
-        # Redirect to welcome
-        welcome_channel = discord.utils.get(guild.text_channels, name="welcome")
-        if welcome_channel:
-            await welcome_channel.send(
-                f"🎉 Welcome {member.mention}!\n\n"
-                "📜 Please read the rules in **#rules**\n"
-                "🎓 Learn how the game works in **#tutorial**\n\n"
-                "Your journey starts now — complete your first quest today!"
-            )
+    # Delete onboarding message
+    try:
+        await interaction.message.delete()
+    except:
+        pass
+
+    # Redirect to welcome channel
+    welcome_channel = discord.utils.get(guild.text_channels, name="welcome")
+    if welcome_channel:
+        await welcome_channel.send(
+            f"🎉 Welcome {member.mention}!\n\n"
+            "📜 Please read the rules in **#rules**\n"
+            "🎓 Learn how the game works in **#tutorial**\n\n"
+            "Your journey starts now — complete your first quest today!"
+        )
 
 # ========================
 # EVENTS
@@ -263,12 +266,13 @@ async def on_member_join(member):
     view = RankSelectView(member.id)
 
     await start_channel.send(
-        f"👋 Welcome {member.mention}!\n\n"
-        "**This server is a real-world social confidence game.**\n"
-        "Complete challenges in real life, earn XP, and level up your confidence.\n\n"
+        f"👋 Welcome {member.mention} to the Social Guinea Pigs!\n\n"
+        "This server is a **real-world** social confidence game. It's a place for people to step out of their comfort zone as they complete **daily and weekly challenges** made to suit your own progression.\n"
+        "You complete these small challenges in real life, earn XP, rank up, and build confidence step by step.\n\n"
+	"For those who want to start small, we recommend starting with the **Initiate Rank**. For those who want to build on their existing social skills, we recommend choosing the **Explorer Rank**.\n"
         "Choose your starting path:\n"
         "🟢 **Initiate** — slower, gentler challenges\n"
-        "🔵 **Explorer** — confident start (instant 100 XP)\n",
+        "🔵 **Explorer** — for confident starters\n",
         view=view
     )
 
@@ -299,9 +303,6 @@ async def handle_quest(ctx, rank_key, quest_number):
         f"✅ Quest completed!\n"
         f"Quest: {quest['name']}\n"
         f"XP Gained: {quest['xp']}\n"
-        f"Total XP: {total_xp}\n"
-        f"Rank: {RANKS[new_rank]}\n"
-        f"Streak: {streak}"
     )
 
 @bot.command()
