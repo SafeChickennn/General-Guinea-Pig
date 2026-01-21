@@ -399,6 +399,11 @@ async def givexp(ctx, member: discord.Member, amount: int):
         f"New Rank: {RANKS[new_rank]}"
     )
 
+@givexp.error
+async def givexp_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ You do not have permission to use this command.")
+
 # ========================
 # START BOT
 # ========================
