@@ -102,13 +102,11 @@ def log_xp(user_id, amount):
     conn.commit()
 
 def add_xp(user_id, amount):
-    """Quest XP — logged for leaderboards"""
     cursor.execute("UPDATE users SET xp = xp + ? WHERE user_id = ?", (amount, user_id))
     conn.commit()
     log_xp(user_id, amount)
 
 def add_bonus_xp(user_id, amount):
-    """Admin / onboarding XP — NOT logged"""
     cursor.execute("UPDATE users SET xp = xp + ? WHERE user_id = ?", (amount, user_id))
     conn.commit()
 
@@ -128,44 +126,33 @@ def get_rank_from_xp(xp):
     else:
         return 1
 
-async def safe_add_role(member, role):
-    try:
-        await member.add_roles(role)
-        return True
-    except:
-        return False
-
-async def safe_remove_role(member, role):
-    try:
-        await member.remove_roles(role)
-        return True
-    except:
-        return False
-
 async def assign_rank_role(member, rank_number):
+    guild = member.guild
     rank_name = RANKS.get(rank_number)
     if not rank_name:
         return
 
-    guild = member.guild
     rank_role = discord.utils.get(guild.roles, name=rank_name)
     if not rank_role:
         return
 
     for role in member.roles:
         if role.name in RANKS.values() and role != rank_role:
-            await safe_remove_role(member, role)
+            try:
+                await member.remove_roles(role)
+            except:
+                pass
 
     if rank_role not in member.roles:
-        await safe_add_role(member, rank_role)
+        try:
+            await member.add_roles(rank_role)
+        except:
+            pass
 
 def update_streak(user_id):
     cursor.execute("SELECT last_quest_date, streak FROM users WHERE user_id = ?", (user_id,))
-    result = cursor.fetchone()
-
+    last_date, streak = cursor.fetchone()
     today = datetime.utcnow().date()
-    streak = result[1]
-    last_date = result[0]
 
     if last_date:
         last_date = datetime.strptime(last_date, "%Y-%m-%d").date()
@@ -182,12 +169,64 @@ def update_streak(user_id):
     return streak
 
 # ========================
+# RANK SELECTION VIEW
+# ========================
+
+class RankSelectView(View):
+    def __init__(self, member_id=None):
+        super().__init__(timeout=None)
+        self.member_id = member_id
+
+    @discord.ui.button(label="🟢 Start as Initiate", style=discord.ButtonStyle.success, custom_id="rank_initiate")
+    async def initiate_button(self, interaction: discord.Interaction, button: Button):
+        await self.assign_rank(interaction, 1, 0)
+
+    @discord.ui.button(label="🔵 Start as Explorer (100 XP)", style=discord.ButtonStyle.primary, custom_id="rank_explorer")
+    async def explorer_button(self, interaction: discord.Interaction, button: Button):
+        await self.assign_rank(interion=interaction, rank_number=2, bonus_xp=100)
+
+    async def assign_rank(self, interaction, rank_number, bonus_xp):
+        if interaction.user.id != self.member_id:
+            await interaction.response.send_message("❌ This selection is not for you.", ephemeral=True)
+            return
+
+        member = interaction.user
+        guild = interaction.guild
+
+        set_rank(member.id, rank_number)
+
+        if bonus_xp > 0:
+            add_bonus_xp(member.id, bonus_xp)
+
+        await assign_rank_role(member, rank_number)
+
+        try:
+            await interaction.message.delete()
+        except:
+            pass
+
+        await interaction.response.send_message(
+            f"✅ You are now an **{RANKS[rank_number]}**!",
+            ephemeral=True
+        )
+
+        welcome_channel = discord.utils.get(guild.text_channels, name="welcome")
+        if welcome_channel:
+            await welcome_channel.send(
+                f"🎉 Welcome {member.mention}!\n\n"
+                "📜 Please read the rules in **#rules**\n"
+                "🎓 Learn how the game works in **#tutorial**\n\n"
+                "Your journey starts now — complete your first quest today!"
+            )
+
+# ========================
 # EVENTS
 # ========================
 
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
+    bot.add_view(RankSelectView())  # persistent buttons
 
 @bot.event
 async def on_member_join(member):
@@ -198,80 +237,24 @@ async def on_member_join(member):
 
     guild = member.guild
     unranked_role = discord.utils.get(guild.roles, name="Unranked")
-
     if unranked_role:
-        await safe_add_role(member, unranked_role)
+        try:
+            await member.add_roles(unranked_role)
+        except:
+            pass
 
     start_channel = discord.utils.get(guild.text_channels, name="start-here")
-
     if start_channel:
-        view = RankSelectView(member)
-        msg = await start_channel.send(
-	    f"👋 Welcome {member.mention} to the Social Guinea Pigs!\n\n"
-            "This server is a **real-world** social confidence game. It's a place for people to step out of their comfort zone as they 	    	    complete **daily and weekly challenges** made to suit your own progression.\n"
-            "You complete these small challenges in real life, earn XP, rank up, and build confidence step by step.\n\n"
-	    "For those who want to start small, we recommend starting with the **Initiate Rank**. For those who want to build on their 		    existing social skills, we recommend choosing the **Explorer Rank**.\n"
+        view = RankSelectView(member_id=member.id)
+        await start_channel.send(
+            f"👋 Welcome {member.mention}!\n\n"
+            "**This server is a real-world social confidence game.**\n"
+            "Complete challenges in real life, earn XP, and level up your confidence.\n\n"
             "Choose your starting path:\n"
             "🟢 **Initiate** — slower, gentler challenges\n"
-            "🔵 **Explorer** — for confident starters\n",
+            "🔵 **Explorer** — confident start (instant 100 XP)\n",
+            view=view
         )
-        view.message = msg
-
-# ========================
-# RANK SELECTION VIEW
-# ========================
-
-class RankSelectView(View):
-    def __init__(self, member):
-        super().__init__(timeout=None)
-        self.member = member
-        self.message = None
-
-    @discord.ui.button(label="🟢 Start as Initiate", style=discord.ButtonStyle.success)
-    async def initiate_button(self, interaction: discord.Interaction, button: Button):
-        await self.assign_rank(interaction, 1, 0)
-
-    @discord.ui.button(label="🔵 Start as Explorer (100 XP)", style=discord.ButtonStyle.primary)
-    async def explorer_button(self, interaction: discord.Interaction, button: Button):
-        await self.assign_rank(interaction, 2, 100)
-
-    async def assign_rank(self, interaction, rank_number, bonus_xp):
-        if interaction.user != self.member:
-            await interaction.response.send_message("❌ This selection is not for you.", ephemeral=True)
-            return
-
-        guild = interaction.guild
-        unranked_role = discord.utils.get(guild.roles, name="Unranked")
-
-        if unranked_role:
-            await safe_remove_role(self.member, unranked_role)
-
-        set_rank(self.member.id, rank_number)
-
-        if bonus_xp > 0:
-            add_bonus_xp(self.member.id, bonus_xp)
-
-        await assign_rank_role(self.member, rank_number)
-
-        if self.message:
-            try:
-                await self.message.delete()
-            except:
-                pass
-
-        await interaction.response.send_message(
-            f"✅ You are now an **{RANKS[rank_number]}**!",
-            ephemeral=True
-        )
-
-        welcome_channel = discord.utils.get(guild.text_channels, name="welcome")
-        if welcome_channel:
-            await welcome_channel.send(
-                f"🎉 Welcome {self.member.mention}!\n\n"
-                "📜 Please read the rules in **#rules**\n"
-                "🎓 Learn how the game works in **#tutorial**\n\n"
-                "Your journey starts now — complete your first quest today!"
-            )
 
 # ========================
 # QUEST SYSTEM
@@ -297,8 +280,9 @@ async def handle_quest(ctx, rank_key, quest_number):
     await assign_rank_role(ctx.author, new_rank)
 
     await ctx.send(
-        f"✅ Quest completed! **{quest['name']}**\n"
-        f"Reward: {quest['xp']} XP\n"
+        f"✅ Quest completed!\n"
+        f"Quest: {quest['name']}\n"
+        f"XP Gained: {quest['xp']}\n"
         f"Total XP: {total_xp}\n"
         f"Rank: {RANKS[new_rank]}\n"
         f"Streak: {streak}"
@@ -384,14 +368,14 @@ async def leaderboard(ctx, category: str):
     await ctx.send(embed=embed)
 
 # ========================
-# ADMIN COMMANDS
+# ADMIN COMMAND
 # ========================
 
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def givexp(ctx, member: discord.Member, amount: int):
     if amount <= 0:
-        await ctx.send("❌ XP amount must be positive.")
+        await ctx.send("❌ XP must be positive.")
         return
 
     get_user(member.id)
@@ -405,15 +389,10 @@ async def givexp(ctx, member: discord.Member, amount: int):
     await assign_rank_role(member, new_rank)
 
     await ctx.send(
-        f"✅ {member.mention} has been given **{amount} XP**.\n"
-        f"New Total XP: {total_xp}\n"
+        f"✅ {member.mention} received {amount} XP\n"
+        f"New Total: {total_xp} XP\n"
         f"New Rank: {RANKS[new_rank]}"
     )
-
-@givexp.error
-async def givexp_error(ctx, error):
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ You do not have permission to use this command.")
 
 # ========================
 # START BOT
