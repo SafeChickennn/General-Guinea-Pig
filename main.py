@@ -192,9 +192,9 @@ class RankSelectView(View):
         await self.assign_rank(interaction, 2, 100)
 
     async def assign_rank(self, interaction: discord.Interaction, rank_number, bonus_xp):
-    if interaction.user.id != self.member_id:
-        await interaction.response.send_message("❌ This selection is not for you.", ephemeral=True)
-        return
+    	if interaction.user.id != self.member_id:
+            await interaction.response.send_message("❌ This selection is not for you.", ephemeral=True)
+            return
 
     # Acknowledge interaction immediately
     await interaction.response.defer()
