@@ -129,21 +129,27 @@ def get_rank_from_xp(xp):
 async def assign_rank_role(member, rank_number):
     guild = member.guild
     rank_name = RANKS.get(rank_number)
-    if not rank_name:
-        return
 
     rank_role = discord.utils.get(guild.roles, name=rank_name)
-    if not rank_role:
-        return
+    unranked_role = discord.utils.get(guild.roles, name="Unranked")
 
+    # Remove Unranked
+    if unranked_role and unranked_role in member.roles:
+        try:
+            await member.remove_roles(unranked_role)
+        except:
+            pass
+
+    # Remove other rank roles
     for role in member.roles:
-        if role.name in RANKS.values() and role != rank_role:
+        if role.name in RANKS.values() and role.name != rank_name:
             try:
                 await member.remove_roles(role)
             except:
                 pass
 
-    if rank_role not in member.roles:
+    # Add correct rank
+    if rank_role and rank_role not in member.roles:
         try:
             await member.add_roles(rank_role)
         except:
@@ -173,7 +179,7 @@ def update_streak(user_id):
 # ========================
 
 class RankSelectView(View):
-    def __init__(self, member_id=None):
+    def __init__(self, member_id):
         super().__init__(timeout=None)
         self.member_id = member_id
 
@@ -183,9 +189,9 @@ class RankSelectView(View):
 
     @discord.ui.button(label="🔵 Start as Explorer (100 XP)", style=discord.ButtonStyle.primary, custom_id="rank_explorer")
     async def explorer_button(self, interaction: discord.Interaction, button: Button):
-        await self.assign_rank(interion=interaction, rank_number=2, bonus_xp=100)
+        await self.assign_rank(interaction, 2, 100)
 
-    async def assign_rank(self, interaction, rank_number, bonus_xp):
+    async def assign_rank(self, interaction: discord.Interaction, rank_number, bonus_xp):
         if interaction.user.id != self.member_id:
             await interaction.response.send_message("❌ This selection is not for you.", ephemeral=True)
             return
@@ -200,16 +206,13 @@ class RankSelectView(View):
 
         await assign_rank_role(member, rank_number)
 
+        # Delete onboarding message
         try:
             await interaction.message.delete()
         except:
             pass
 
-        await interaction.response.send_message(
-            f"✅ You are now an **{RANKS[rank_number]}**!",
-            ephemeral=True
-        )
-
+        # Redirect to welcome
         welcome_channel = discord.utils.get(guild.text_channels, name="welcome")
         if welcome_channel:
             await welcome_channel.send(
@@ -226,7 +229,7 @@ class RankSelectView(View):
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
-    bot.add_view(RankSelectView())  # persistent buttons
+    bot.add_view(RankSelectView(0))  # persistent buttons
 
 @bot.event
 async def on_member_join(member):
@@ -236,6 +239,8 @@ async def on_member_join(member):
     get_user(member.id)
 
     guild = member.guild
+
+    # Assign Unranked role
     unranked_role = discord.utils.get(guild.roles, name="Unranked")
     if unranked_role:
         try:
@@ -244,17 +249,28 @@ async def on_member_join(member):
             pass
 
     start_channel = discord.utils.get(guild.text_channels, name="start-here")
-    if start_channel:
-        view = RankSelectView(member_id=member.id)
-        await start_channel.send(
-            f"👋 Welcome {member.mention}!\n\n"
-            "**This server is a real-world social confidence game.**\n"
-            "Complete challenges in real life, earn XP, and level up your confidence.\n\n"
-            "Choose your starting path:\n"
-            "🟢 **Initiate** — slower, gentler challenges\n"
-            "🔵 **Explorer** — confident start (instant 100 XP)\n",
-            view=view
-        )
+    if not start_channel:
+        return
+
+    # Remove any previous onboarding messages mentioning this user
+    async for msg in start_channel.history(limit=50):
+        if member.mention in msg.content:
+            try:
+                await msg.delete()
+            except:
+                pass
+
+    view = RankSelectView(member.id)
+
+    await start_channel.send(
+        f"👋 Welcome {member.mention}!\n\n"
+        "**This server is a real-world social confidence game.**\n"
+        "Complete challenges in real life, earn XP, and level up your confidence.\n\n"
+        "Choose your starting path:\n"
+        "🟢 **Initiate** — slower, gentler challenges\n"
+        "🔵 **Explorer** — confident start (instant 100 XP)\n",
+        view=view
+    )
 
 # ========================
 # QUEST SYSTEM
@@ -320,6 +336,7 @@ async def progress(ctx):
 async def leaderboard(ctx, category: str):
     category = category.lower()
 
+    # Ensure all members exist in DB
     for member in ctx.guild.members:
         if not member.bot:
             get_user(member.id)
