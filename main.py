@@ -133,14 +133,12 @@ async def assign_rank_role(member, rank_number):
     rank_role = discord.utils.get(guild.roles, name=rank_name)
     unranked_role = discord.utils.get(guild.roles, name="Unranked")
 
-    # Remove Unranked
     if unranked_role and unranked_role in member.roles:
         try:
             await member.remove_roles(unranked_role)
         except:
             pass
 
-    # Remove other rank roles
     for role in member.roles:
         if role.name in RANKS.values() and role.name != rank_name:
             try:
@@ -148,7 +146,6 @@ async def assign_rank_role(member, rank_number):
             except:
                 pass
 
-    # Add correct rank
     if rank_role and rank_role not in member.roles:
         try:
             await member.add_roles(rank_role)
@@ -192,38 +189,35 @@ class RankSelectView(View):
         await self.assign_rank(interaction, 2, 100)
 
     async def assign_rank(self, interaction: discord.Interaction, rank_number, bonus_xp):
-    	if interaction.user.id != self.member_id:
+        if interaction.user.id != self.member_id:
             await interaction.response.send_message("❌ This selection is not for you.", ephemeral=True)
             return
 
-    # Acknowledge interaction immediately
-    await interaction.response.defer()
+        await interaction.response.defer()
 
-    member = interaction.user
-    guild = interaction.guild
+        member = interaction.user
+        guild = interaction.guild
 
-    set_rank(member.id, rank_number)
+        set_rank(member.id, rank_number)
 
-    if bonus_xp > 0:
-        add_bonus_xp(member.id, bonus_xp)
+        if bonus_xp > 0:
+            add_bonus_xp(member.id, bonus_xp)
 
-    await assign_rank_role(member, rank_number)
+        await assign_rank_role(member, rank_number)
 
-    # Delete onboarding message
-    try:
-        await interaction.message.delete()
-    except:
-        pass
+        try:
+            await interaction.message.delete()
+        except:
+            pass
 
-    # Redirect to welcome channel
-    welcome_channel = discord.utils.get(guild.text_channels, name="welcome")
-    if welcome_channel:
-        await welcome_channel.send(
-            f"🎉 Welcome {member.mention}!\n\n"
-            "📜 Please read the rules in **#rules**\n"
-            "🎓 Learn how the game works in **#tutorial**\n\n"
-            "Your journey starts now — complete your first quest today!"
-        )
+        welcome_channel = discord.utils.get(guild.text_channels, name="welcome")
+        if welcome_channel:
+            await welcome_channel.send(
+                f"🎉 Welcome {member.mention}!\n\n"
+                "📜 Please read the rules in **#rules**\n"
+                "🎓 Learn how the game works in **#tutorial**\n\n"
+                "Your journey starts now — complete your first quest today!"
+            )
 
 # ========================
 # EVENTS
@@ -232,7 +226,7 @@ class RankSelectView(View):
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
-    bot.add_view(RankSelectView(0))  # persistent buttons
+    bot.add_view(RankSelectView(0))
 
 @bot.event
 async def on_member_join(member):
@@ -243,7 +237,6 @@ async def on_member_join(member):
 
     guild = member.guild
 
-    # Assign Unranked role
     unranked_role = discord.utils.get(guild.roles, name="Unranked")
     if unranked_role:
         try:
@@ -254,14 +247,6 @@ async def on_member_join(member):
     start_channel = discord.utils.get(guild.text_channels, name="start-here")
     if not start_channel:
         return
-
-    # Remove any previous onboarding messages mentioning this user
-    async for msg in start_channel.history(limit=50):
-        if member.mention in msg.content:
-            try:
-                await msg.delete()
-            except:
-                pass
 
     view = RankSelectView(member.id)
 
@@ -303,6 +288,9 @@ async def handle_quest(ctx, rank_key, quest_number):
         f"✅ Quest completed!\n"
         f"Quest: {quest['name']}\n"
         f"XP Gained: {quest['xp']}\n"
+        f"Total XP: {total_xp}\n"
+        f"Rank: {RANKS[new_rank]}\n"
+        f"Streak: {streak}"
     )
 
 @bot.command()
@@ -337,7 +325,6 @@ async def progress(ctx):
 async def leaderboard(ctx, category: str):
     category = category.lower()
 
-    # Ensure all members exist in DB
     for member in ctx.guild.members:
         if not member.bot:
             get_user(member.id)
