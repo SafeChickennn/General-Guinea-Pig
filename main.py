@@ -106,11 +106,9 @@ def add_xp(user_id, amount):
     conn.commit()
     log_xp(user_id, amount)
 
-# Updated add_bonus_xp to also log XP to avoid XP mismatch
 def add_bonus_xp(user_id, amount):
     cursor.execute("UPDATE users SET xp = xp + ? WHERE user_id = ?", (amount, user_id))
     conn.commit()
-    log_xp(user_id, amount)
 
 def set_rank(user_id, rank):
     cursor.execute("UPDATE users SET rank = ? WHERE user_id = ?", (rank, user_id))
@@ -200,15 +198,12 @@ class RankSelectView(View):
         member = interaction.user
         guild = interaction.guild
 
-        # Only upgrade rank if it's higher than current
-        user = get_user(member.id)
-        current_rank = user[2]
-        if rank_number > current_rank:
-            set_rank(member.id, rank_number)
-            await assign_rank_role(member, rank_number)
+        set_rank(member.id, rank_number)
 
         if bonus_xp > 0:
             add_bonus_xp(member.id, bonus_xp)
+
+        await assign_rank_role(member, rank_number)
 
         try:
             await interaction.message.delete()
@@ -231,7 +226,7 @@ class RankSelectView(View):
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
-    bot.add_view(RankSelectView(0))
+    # Removed persistent view to avoid double messages
 
 @bot.event
 async def on_member_join(member):
@@ -243,7 +238,7 @@ async def on_member_join(member):
     guild = member.guild
 
     unranked_role = discord.utils.get(guild.roles, name="Unranked")
-    if unranked_role:
+    if unranked_role and unranked_role not in member.roles:
         try:
             await member.add_roles(unranked_role)
         except:
@@ -253,13 +248,18 @@ async def on_member_join(member):
     if not start_channel:
         return
 
+    # Prevent duplicate onboarding messages
+    async for msg in start_channel.history(limit=50):
+        if member.mention in msg.content:
+            return
+
     view = RankSelectView(member.id)
 
     await start_channel.send(
         f"👋 Welcome {member.mention} to the Social Guinea Pigs!\n\n"
         "This server is a **real-world** social confidence game. It's a place for people to step out of their comfort zone as they complete **daily and weekly challenges** made to suit your own progression.\n"
         "You complete these small challenges in real life, earn XP, rank up, and build confidence step by step.\n\n"
-	"For those who want to start small, we recommend starting with the **Initiate Rank**. For those who want to build on their existing social skills, we recommend choosing the **Explorer Rank**.\n"
+        "For those who want to start small, we recommend starting with the **Initiate Rank**. For those who want to build on their existing social skills, we recommend choosing the **Explorer Rank**.\n"
         "Choose your starting path:\n"
         "🟢 **Initiate** — slower, gentler challenges\n"
         "🔵 **Explorer** — for confident starters\n",
@@ -271,13 +271,12 @@ async def on_member_join(member):
 # ========================
 
 async def handle_quest(ctx, rank_key, quest_number):
-    if quest_number not in QUESTS[rank_key]:
+    quest = QUESTS.get(rank_key, {}).get(quest_number)
+    if not quest:
         await ctx.send("❌ Invalid quest number.")
         return
 
-    quest = QUESTS[rank_key][quest_number]
     user_id = ctx.author.id
-
     user = get_user(user_id)
     current_rank = user[2]
 
@@ -288,12 +287,11 @@ async def handle_quest(ctx, rank_key, quest_number):
     total_xp = cursor.fetchone()[0]
 
     new_rank = get_rank_from_xp(total_xp)
-
-    # Only upgrade rank; do not downgrade
     if new_rank > current_rank:
         set_rank(user_id, new_rank)
         await assign_rank_role(ctx.author, new_rank)
 
+    # Only one message per quest
     await ctx.send(
         f"✅ Quest completed!\n"
         f"Quest: {quest['name']}\n"
