@@ -5,7 +5,7 @@ from discord.ui import View, Button
 import os
 from datetime import datetime, timedelta
 import random
-import pytz
+from zoneinfo import ZoneInfo
 
 # ========================
 # DATABASE SETUP
@@ -79,7 +79,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # TIMEZONE
 # ========================
 
-TZ = pytz.timezone("America/New_York")
+TZ = ZoneInfo("America/New_York")
 
 def today_est():
     return datetime.now(TZ).date().isoformat()
