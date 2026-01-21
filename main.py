@@ -1,9 +1,11 @@
 import sqlite3
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord.ui import View, Button
 import os
 from datetime import datetime, timedelta
+import random
+import pytz
 
 # ========================
 # DATABASE SETUP
@@ -31,6 +33,36 @@ CREATE TABLE IF NOT EXISTS xp_log (
 )
 """)
 
+# daily quest rotation (stores today's chosen quests)
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS daily_quest_rotation (
+    rank TEXT,
+    quest_key TEXT,
+    quest_name TEXT,
+    xp INTEGER,
+    date TEXT
+)
+""")
+
+# weekly quest rotation
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS weekly_quest_rotation (
+    rank TEXT,
+    quest_name TEXT,
+    xp INTEGER,
+    week_start TEXT
+)
+""")
+
+# quest claim tracking
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS quest_claims (
+    user_id INTEGER,
+    quest_key TEXT,
+    date TEXT
+)
+""")
+
 conn.commit()
 
 # ========================
@@ -44,21 +76,28 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ========================
-# GAME DATA
+# TIMEZONE
 # ========================
 
-QUESTS = {
-    "initiate": {
-        "1": {"name": "Smile at 3 people", "xp": 5},
-        "2": {"name": "Say hello to 5 people", "xp": 10},
-    },
-    "connector": {
-        "1": {"name": "Smile at 3 people", "xp": 5},
-        "2": {"name": "Compliment someone's clothing", "xp": 15},
-        "3": {"name": "Ask someone how their day is going", "xp": 30},
-        "4": {"name": "Introduce yourself", "xp": 40},
-    }
-}
+TZ = pytz.timezone("America/New_York")
+
+def today_est():
+    return datetime.now(TZ).date().isoformat()
+
+def week_start_est():
+    now = datetime.now(TZ)
+    start = now - timedelta(days=now.weekday())
+    return start.date().isoformat()
+
+# ========================
+# CHANNEL PERMISSIONS
+# ========================
+
+ALLOWED_QUEST_CHANNELS = ["quests", "quest-log"]
+
+# ========================
+# RANK DATA
+# ========================
 
 RANKS = {
     1: "Initiate",
@@ -74,6 +113,112 @@ RANK_LOOKUP = {
     "connector": 3,
     "leader": 4,
     "mentor": 5
+}
+
+# ========================
+# QUEST POOLS
+# ========================
+
+QUEST_POOLS = {
+    "initiate_1": [
+        "Smile at 5 people.",
+        "Say “Hi” or “Good morning” to 3 people.",
+        "Make eye contact with 5 strangers."
+    ],
+    "initiate_2": [
+        "Sit in a public place for 10 minutes with no phone.",
+        "Walk through a busy street for 10 minutes without headphones.",
+        "Compliment someone’s clothing.",
+        "Read or write for 15 minutes in a public place.",
+        "Write 5 sentences about how you felt being around people today.",
+        "Use someone’s name after they introduce themselves.",
+        "Thank 3 service workers with genuine presence."
+    ],
+    "explorer_1": [
+        "Ask a stranger for the time.",
+        "Comment about your surroundings to a stranger.",
+        "Ask someone how their day is going."
+    ],
+    "explorer_2": [
+        "Have a 30-second conversation with a barista/cashier",
+        "Ask someone for a food or coffee recommendation.",
+        "Talk to someone in a queue.",
+        "Ask someone what they’re reading.",
+        "Ask someone about a good place to go nearby.",
+        "Ask a stranger for directions (even if you know).",
+        "Ask someone their weekend plans."
+    ],
+    "connector_1": [
+        "Learn someone’s name",
+        "Give 3 compliments to strangers.",
+        "Catch up with an acquaintance."
+    ],
+    "connector_2": [
+        "Insert yourself into an existing group conversation.",
+        "Share a small personal truth with someone new.",
+        "Sit next to a stranger and start a conversation.",
+        "Invite someone for a short coffee.",
+        "Give a compliment about someone’s personality.",
+        "Ask someone new about their passions.",
+        "Tell a new short personal story to someone."
+    ],
+    "leader_1": [
+        "Start 3 conversations.",
+        "Lead a group conversation.",
+        "Give 3 compliments about a person’s energy or personality."
+    ],
+    "leader_2": [
+        "Bring two people together who don’t know each other.",
+        "Get to know someone over coffee or a walk.",
+        "Learn the names of 3 new people in one day.",
+        "Stand alone in a busy place for 10 minutes with no phone.",
+        "Ask a group a meaningful question.",
+        "Reflect back someone’s feelings in a conversation.",
+        "Sit next to a stranger and start a conversation."
+    ]
+}
+
+WEEKLY_QUESTS = {
+    "initiate": (20, [
+        "Ask someone about their day.",
+        "Ask someone what the time is."
+    ]),
+    "explorer": (40, [
+        "End a conversation early, but confidently and politely.",
+        "Introduce yourself to someone new.",
+        "In an awkward silence, stay present and let others fill the silence."
+    ]),
+    "connector": (60, [
+        "Ask for someone’s contact details.",
+        "At a social event, talk to 3 new people.",
+        "Encourage a runner or cyclist.",
+        "Eat a meal alone in public without your phone."
+    ]),
+    "leader": (60, [
+        "Invite someone to an event or activity.",
+        "Have a 10 minute conversation with someone you recently met.",
+        "For 30 minutes, make eye contact with everyone who enters a social space.",
+        "Keep a conversation going for 15 minutes without checking your phone or escaping.",
+        "Organise a group activity like a dinner walk or social event."
+    ]),
+    "mentor": (80, [
+        "Support someone through a vulnerable conversation.",
+        "Spend a full day saying yes to social opportunities.",
+        "Be the person who welcomes newcomers into a space.",
+        "Help resolve a disagreement.",
+        "Help 5 people build new connections."
+    ])
+}
+
+XP_VALUES = {
+    "initiate_1": 5,
+    "initiate_2": 10,
+    "explorer_1": 15,
+    "explorer_2": 20,
+    "connector_1": 25,
+    "connector_2": 30,
+    "leader_1": 35,
+    "leader_2": 40
 }
 
 # ========================
@@ -151,6 +296,138 @@ async def assign_rank_role(member, rank_number):
             await member.add_roles(rank_role)
         except:
             pass
+
+# ========================
+# QUEST ROTATION ENGINE
+# ========================
+
+def generate_daily_quests():
+    today = today_est()
+    cursor.execute("DELETE FROM daily_quest_rotation WHERE date != ?", (today,))
+
+    for key, pool in QUEST_POOLS.items():
+        chosen = random.choice(pool)
+        xp = XP_VALUES[key]
+
+        cursor.execute("""
+            INSERT INTO daily_quest_rotation (rank, quest_key, quest_name, xp, date)
+            VALUES (?, ?, ?, ?, ?)
+        """, (key.split("_")[0], key, chosen, xp, today))
+
+    conn.commit()
+
+def generate_weekly_quests():
+    week = week_start_est()
+    cursor.execute("DELETE FROM weekly_quest_rotation WHERE week_start != ?", (week,))
+
+    for rank, (xp, pool) in WEEKLY_QUESTS.items():
+        chosen = random.choice(pool)
+        cursor.execute("""
+            INSERT INTO weekly_quest_rotation (rank, quest_name, xp, week_start)
+            VALUES (?, ?, ?, ?)
+        """, (rank, chosen, xp, week))
+
+    conn.commit()
+
+def has_claimed(user_id, quest_key):
+    cursor.execute("""
+        SELECT 1 FROM quest_claims WHERE user_id = ? AND quest_key = ? AND date = ?
+    """, (user_id, quest_key, today_est()))
+    return cursor.fetchone() is not None
+
+def claim_quest(user_id, quest_key):
+    cursor.execute("""
+        INSERT INTO quest_claims (user_id, quest_key, date)
+        VALUES (?, ?, ?)
+    """, (user_id, quest_key, today_est()))
+    conn.commit()
+
+# ========================
+# DAILY SCHEDULER
+# ========================
+
+@tasks.loop(minutes=60)
+async def daily_reset_task():
+    generate_daily_quests()
+    generate_weekly_quests()
+
+@bot.event
+async def on_ready():
+    print(f"✅ Logged in as {bot.user}")
+    daily_reset_task.start()
+    generate_daily_quests()
+    generate_weekly_quests()
+
+# ========================
+# QUEST COMMANDS
+# ========================
+
+async def quest_command(ctx, quest_key):
+    if ctx.channel.name not in ALLOWED_QUEST_CHANNELS:
+        await ctx.send("❌ Quest commands can only be used in quest channels.")
+        return
+
+    cursor.execute("""
+        SELECT quest_name, xp FROM daily_quest_rotation
+        WHERE quest_key = ? AND date = ?
+    """, (quest_key, today_est()))
+
+    result = cursor.fetchone()
+    if not result:
+        await ctx.send("❌ This quest is not available today.")
+        return
+
+    quest_name, xp = result
+
+    if has_claimed(ctx.author.id, quest_key):
+        await ctx.send("❌ You have already completed this quest today.")
+        return
+
+    get_user(ctx.author.id)
+    add_xp(ctx.author.id, xp)
+    claim_quest(ctx.author.id, quest_key)
+
+    await ctx.send(
+        f"✅ Quest completed!\n"
+        f"Quest: {quest['name']}\n"
+        f"XP Gained: {quest['xp']}"
+    )
+
+# Initiate
+@bot.command()
+async def initiate1(ctx):
+    await quest_command(ctx, "initiate_1")
+
+@bot.command()
+async def initiate2(ctx):
+    await quest_command(ctx, "initiate_2")
+
+# Explorer
+@bot.command()
+async def explorer1(ctx):
+    await quest_command(ctx, "explorer_1")
+
+@bot.command()
+async def explorer2(ctx):
+    await quest_command(ctx, "explorer_2")
+
+# Connector
+@bot.command()
+async def connector1(ctx):
+    await quest_command(ctx, "connector_1")
+
+@bot.command()
+async def connector2(ctx):
+    await quest_command(ctx, "connector_2")
+
+# Leader
+@bot.command()
+async def leader1(ctx):
+    await quest_command(ctx, "leader_1")
+
+@bot.command()
+async def leader2(ctx):
+    await quest_command(ctx, "leader_2")
 
 # ========================
 # STREAK HANDLING
@@ -272,43 +549,6 @@ async def on_member_join(member):
         "🔵 **Explorer** — for confident starters\n",
         view=view
     )
-
-# ========================
-# QUEST SYSTEM
-# ========================
-
-async def handle_quest(ctx, rank_key, quest_number):
-    if quest_number not in QUESTS[rank_key]:
-        await ctx.send("❌ Invalid quest number.")
-        return
-
-    quest = QUESTS[rank_key][quest_number]
-    user_id = ctx.author.id
-
-    get_user(user_id)
-    add_xp(user_id, quest["xp"])
-    streak = update_streak(user_id)
-
-    cursor.execute("SELECT xp FROM users WHERE user_id = ?", (user_id,))
-    total_xp = cursor.fetchone()[0]
-
-    new_rank = get_rank_from_xp(total_xp)
-    set_rank(user_id, new_rank)
-    await assign_rank_role(ctx.author, new_rank)
-
-    await ctx.send(
-        f"✅ Quest completed!\n"
-        f"Quest: {quest['name']}\n"
-        f"XP Gained: {quest['xp']}"
-    )
-
-@bot.command()
-async def initiate(ctx, quest_number: str):
-    await handle_quest(ctx, "initiate", quest_number)
-
-@bot.command()
-async def connector(ctx, quest_number: str):
-    await handle_quest(ctx, "connector", quest_number)
 
 # ========================
 # PROFILE
