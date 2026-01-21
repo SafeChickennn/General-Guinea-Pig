@@ -6,7 +6,7 @@ import os
 from datetime import datetime, timedelta
 
 # ========================
-# DATABASE
+# DATABASE SETUP
 # ========================
 
 conn = sqlite3.connect("bot.db")
@@ -18,8 +18,7 @@ CREATE TABLE IF NOT EXISTS users (
     xp INTEGER DEFAULT 0,
     rank INTEGER DEFAULT 1,
     streak INTEGER DEFAULT 0,
-    last_quest_date TEXT,
-    onboarding_complete INTEGER DEFAULT 0
+    last_quest_date TEXT
 )
 """)
 
@@ -28,8 +27,7 @@ CREATE TABLE IF NOT EXISTS xp_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER,
     xp INTEGER,
-    timestamp TEXT,
-    source TEXT
+    timestamp TEXT
 )
 """)
 
@@ -88,7 +86,7 @@ def get_user(user_id):
 
     if not user:
         cursor.execute(
-            "INSERT INTO users (user_id, xp, rank, streak, onboarding_complete) VALUES (?, 0, 1, 0, 0)",
+            "INSERT INTO users (user_id, xp, rank, streak) VALUES (?, 0, 1, 0)",
             (user_id,)
         )
         conn.commit()
@@ -96,24 +94,26 @@ def get_user(user_id):
 
     return user
 
-def log_xp(user_id, amount, source):
+def log_xp(user_id, amount):
     cursor.execute(
-        "INSERT INTO xp_log (user_id, xp, timestamp, source) VALUES (?, ?, ?, ?)",
-        (user_id, amount, datetime.utcnow().isoformat(), source)
+        "INSERT INTO xp_log (user_id, xp, timestamp) VALUES (?, ?, ?)",
+        (user_id, amount, datetime.utcnow().isoformat())
     )
     conn.commit()
 
-def add_xp(user_id, amount, source="quest"):
+def add_xp(user_id, amount):
     cursor.execute("UPDATE users SET xp = xp + ? WHERE user_id = ?", (amount, user_id))
     conn.commit()
-    log_xp(user_id, amount, source)
+    log_xp(user_id, amount)
+
+# Updated add_bonus_xp to also log XP to avoid XP mismatch
+def add_bonus_xp(user_id, amount):
+    cursor.execute("UPDATE users SET xp = xp + ? WHERE user_id = ?", (amount, user_id))
+    conn.commit()
+    log_xp(user_id, amount)
 
 def set_rank(user_id, rank):
     cursor.execute("UPDATE users SET rank = ? WHERE user_id = ?", (rank, user_id))
-    conn.commit()
-
-def complete_onboarding(user_id):
-    cursor.execute("UPDATE users SET onboarding_complete = 1 WHERE user_id = ?", (user_id,))
     conn.commit()
 
 def get_rank_from_xp(xp):
@@ -136,23 +136,33 @@ async def assign_rank_role(member, rank_number):
     unranked_role = discord.utils.get(guild.roles, name="Unranked")
 
     if unranked_role and unranked_role in member.roles:
-        await member.remove_roles(unranked_role)
+        try:
+            await member.remove_roles(unranked_role)
+        except:
+            pass
 
     for role in member.roles:
         if role.name in RANKS.values() and role.name != rank_name:
-            await member.remove_roles(role)
+            try:
+                await member.remove_roles(role)
+            except:
+                pass
 
     if rank_role and rank_role not in member.roles:
-        await member.add_roles(rank_role)
+        try:
+            await member.add_roles(rank_role)
+        except:
+            pass
 
 def update_streak(user_id):
     cursor.execute("SELECT last_quest_date, streak FROM users WHERE user_id = ?", (user_id,))
-    row = cursor.fetchone()
+    last_date, streak = cursor.fetchone()
     today = datetime.utcnow().date()
 
-    if row[0]:
-        last_date = datetime.strptime(row[0], "%Y-%m-%d").date()
-        streak = row[1] + 1 if today > last_date else row[1]
+    if last_date:
+        last_date = datetime.strptime(last_date, "%Y-%m-%d").date()
+        if today > last_date:
+            streak += 1
     else:
         streak = 1
 
@@ -190,13 +200,15 @@ class RankSelectView(View):
         member = interaction.user
         guild = interaction.guild
 
-        set_rank(member.id, rank_number)
+        # Only upgrade rank if it's higher than current
+        user = get_user(member.id)
+        current_rank = user[2]
+        if rank_number > current_rank:
+            set_rank(member.id, rank_number)
+            await assign_rank_role(member, rank_number)
 
         if bonus_xp > 0:
-            add_xp(member.id, bonus_xp, source="onboarding")
-
-        complete_onboarding(member.id)
-        await assign_rank_role(member, rank_number)
+            add_bonus_xp(member.id, bonus_xp)
 
         try:
             await interaction.message.delete()
@@ -219,7 +231,7 @@ class RankSelectView(View):
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
-    bot.add_view(RankSelectView(0))  # Persistent buttons
+    bot.add_view(RankSelectView(0))
 
 @bot.event
 async def on_member_join(member):
@@ -232,7 +244,10 @@ async def on_member_join(member):
 
     unranked_role = discord.utils.get(guild.roles, name="Unranked")
     if unranked_role:
-        await member.add_roles(unranked_role)
+        try:
+            await member.add_roles(unranked_role)
+        except:
+            pass
 
     start_channel = discord.utils.get(guild.text_channels, name="start-here")
     if not start_channel:
@@ -242,11 +257,12 @@ async def on_member_join(member):
 
     await start_channel.send(
         f"👋 Welcome {member.mention} to the Social Guinea Pigs!\n\n"
-        "This server is a real-world social confidence game. You complete daily challenges, "
-        "earn XP, rank up, and build confidence step by step.\n\n"
+        "This server is a **real-world** social confidence game. It's a place for people to step out of their comfort zone as they complete **daily and weekly challenges** made to suit your own progression.\n"
+        "You complete these small challenges in real life, earn XP, rank up, and build confidence step by step.\n\n"
+	"For those who want to start small, we recommend starting with the **Initiate Rank**. For those who want to build on their existing social skills, we recommend choosing the **Explorer Rank**.\n"
         "Choose your starting path:\n"
-        "🟢 Initiate — slower, gentler challenges\n"
-        "🔵 Explorer — confident starter path",
+        "🟢 **Initiate** — slower, gentler challenges\n"
+        "🔵 **Explorer** — for confident starters\n",
         view=view
     )
 
@@ -265,17 +281,18 @@ async def handle_quest(ctx, rank_key, quest_number):
     user = get_user(user_id)
     current_rank = user[2]
 
-    add_xp(user_id, quest["xp"], source="quest")
+    add_xp(user_id, quest["xp"])
     update_streak(user_id)
 
     cursor.execute("SELECT xp FROM users WHERE user_id = ?", (user_id,))
     total_xp = cursor.fetchone()[0]
 
-    xp_rank = get_rank_from_xp(total_xp)
+    new_rank = get_rank_from_xp(total_xp)
 
-    if xp_rank > current_rank:
-        set_rank(user_id, xp_rank)
-        await assign_rank_role(ctx.author, xp_rank)
+    # Only upgrade rank; do not downgrade
+    if new_rank > current_rank:
+        set_rank(user_id, new_rank)
+        await assign_rank_role(ctx.author, new_rank)
 
     await ctx.send(
         f"✅ Quest completed!\n"
@@ -308,7 +325,62 @@ async def progress(ctx):
     )
 
 # ========================
-# ADMIN
+# LEADERBOARDS
+# ========================
+
+@bot.command(name="lb")
+async def leaderboard(ctx, category: str):
+    category = category.lower()
+
+    for member in ctx.guild.members:
+        if not member.bot:
+            get_user(member.id)
+
+    if category == "global":
+        cursor.execute("SELECT user_id, xp FROM users ORDER BY xp DESC")
+        results = cursor.fetchall()
+
+        embed = discord.Embed(title="🏆 Global Leaderboard", color=0xFFD700)
+
+        for index, (user_id, xp) in enumerate(results[:10], start=1):
+            member = ctx.guild.get_member(user_id)
+            name = member.display_name if member else f"User {user_id}"
+            embed.add_field(name=f"#{index} — {name}", value=f"{xp} XP", inline=False)
+
+        await ctx.send(embed=embed)
+        return
+
+    if category not in RANK_LOOKUP:
+        await ctx.send("❌ Invalid leaderboard category.")
+        return
+
+    rank_number = RANK_LOOKUP[category]
+    rank_name = RANKS[rank_number]
+
+    seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
+
+    cursor.execute("""
+        SELECT users.user_id, COALESCE(SUM(xp_log.xp), 0) as weekly_xp
+        FROM users
+        LEFT JOIN xp_log ON users.user_id = xp_log.user_id AND xp_log.timestamp >= ?
+        WHERE users.rank = ?
+        GROUP BY users.user_id
+        ORDER BY weekly_xp DESC
+    """, (seven_days_ago, rank_number))
+
+    results = cursor.fetchall()
+
+    embed = discord.Embed(title=f"🏆 {rank_name} Leaderboard (7 Days)", color=0x00FFAA)
+
+    for index, (user_id, weekly_xp) in enumerate(results[:10], start=1):
+        member = ctx.guild.get_member(user_id)
+        name = member.display_name if member else f"User {user_id}"
+        embed.add_field(name=f"#{index} — {name}", value=f"{weekly_xp} XP", inline=False)
+
+    await ctx.send(embed=embed)
+
+# ========================
+# ADMIN COMMAND
 # ========================
 
 @bot.command()
@@ -319,25 +391,28 @@ async def givexp(ctx, member: discord.Member, amount: int):
         return
 
     get_user(member.id)
-    add_xp(member.id, amount, source="admin")
+    add_bonus_xp(member.id, amount)
 
-    cursor.execute("SELECT xp, rank FROM users WHERE user_id = ?", (member.id,))
-    total_xp, current_rank = cursor.fetchone()
+    cursor.execute("SELECT xp FROM users WHERE user_id = ?", (member.id,))
+    total_xp = cursor.fetchone()[0]
 
-    xp_rank = get_rank_from_xp(total_xp)
-
-    if xp_rank > current_rank:
-        set_rank(member.id, xp_rank)
-        await assign_rank_role(member, xp_rank)
+    new_rank = get_rank_from_xp(total_xp)
+    set_rank(member.id, new_rank)
+    await assign_rank_role(member, new_rank)
 
     await ctx.send(
         f"✅ {member.mention} received {amount} XP\n"
         f"New Total: {total_xp} XP\n"
-        f"Rank: {RANKS[max(current_rank, xp_rank)]}"
+        f"New Rank: {RANKS[new_rank]}"
     )
 
+@givexp.error
+async def givexp_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ You do not have permission to use this command.")
+
 # ========================
-# START
+# START BOT
 # ========================
 
 bot.run(os.getenv("DISCORD_TOKEN"))
