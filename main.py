@@ -709,23 +709,23 @@ async def weekly_quest_command(ctx, rank_name):
             f"XP Gained: {xp}"
         )
 
-@bot.command()
+@bot.command(name="initiateweekly")
 async def initiate_weekly(ctx):
     await weekly_quest_command(ctx, "initiate")
 
-@bot.command()
+@bot.command(name="explorerweekly")
 async def explorer_weekly(ctx):
     await weekly_quest_command(ctx, "explorer")
 
-@bot.command()
+@bot.command(name="connectorweekly")
 async def connector_weekly(ctx):
     await weekly_quest_command(ctx, "connector")
 
-@bot.command()
+@bot.command(name="leaderweekly")
 async def leader_weekly(ctx):
     await weekly_quest_command(ctx, "leader")
 
-@bot.command()
+@bot.command(name="mentorweekly")
 async def mentor_weekly(ctx):
     await weekly_quest_command(ctx, "mentor")
 
