@@ -44,6 +44,15 @@ CREATE TABLE IF NOT EXISTS daily_quest_rotation (
 )
 """)
 
+# Track used quests for 7-day rotation (for _2 type quests)
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS quest_seven_day_pool (
+    quest_key TEXT,
+    used_quests TEXT,
+    cycle_start TEXT
+)
+""")
+
 # weekly quest rotation
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS weekly_quest_rotation (
@@ -122,16 +131,16 @@ RANK_LOOKUP = {
 QUEST_POOLS = {
     "initiate_1": [
         "Smile at 5 people.",
-        "Say “Hi” or “Good morning” to 3 people.",
+        "Say "Hi" or "Good morning" to 3 people.",
         "Make eye contact with 5 strangers."
     ],
     "initiate_2": [
         "Sit in a public place for 10 minutes with no phone.",
         "Walk through a busy street for 10 minutes without headphones.",
-        "Compliment someone’s clothing.",
+        "Compliment someone's clothing.",
         "Read or write for 15 minutes in a public place.",
         "Write 5 sentences about how you felt being around people today.",
-        "Use someone’s name after they introduce themselves.",
+        "Use someone's name after they introduce themselves.",
         "Thank 3 service workers with genuine presence."
     ],
     "explorer_1": [
@@ -143,13 +152,13 @@ QUEST_POOLS = {
         "Have a 30-second conversation with a barista/cashier",
         "Ask someone for a food or coffee recommendation.",
         "Talk to someone in a queue.",
-        "Ask someone what they’re reading.",
+        "Ask someone what they're reading.",
         "Ask someone about a good place to go nearby.",
         "Ask a stranger for directions (even if you know).",
         "Ask someone their weekend plans."
     ],
     "connector_1": [
-        "Learn someone’s name",
+        "Learn someone's name",
         "Give 3 compliments to strangers.",
         "Catch up with an acquaintance."
     ],
@@ -158,22 +167,22 @@ QUEST_POOLS = {
         "Share a small personal truth with someone new.",
         "Sit next to a stranger and start a conversation.",
         "Invite someone for a short coffee.",
-        "Give a compliment about someone’s personality.",
+        "Give a compliment about someone's personality.",
         "Ask someone new about their passions.",
         "Tell a new short personal story to someone."
     ],
     "leader_1": [
         "Start 3 conversations.",
         "Lead a group conversation.",
-        "Give 3 compliments about a person’s energy or personality."
+        "Give 3 compliments about a person's energy or personality."
     ],
     "leader_2": [
-        "Bring two people together who don’t know each other.",
+        "Bring two people together who don't know each other.",
         "Get to know someone over coffee or a walk.",
         "Learn the names of 3 new people in one day.",
         "Stand alone in a busy place for 10 minutes with no phone.",
         "Ask a group a meaningful question.",
-        "Reflect back someone’s feelings in a conversation.",
+        "Reflect back someone's feelings in a conversation.",
         "Sit next to a stranger and start a conversation."
     ]
 }
@@ -189,7 +198,7 @@ WEEKLY_QUESTS = {
         "In an awkward silence, stay present and let others fill the silence."
     ]),
     "connector": (60, [
-        "Ask for someone’s contact details.",
+        "Ask for someone's contact details.",
         "At a social event, talk to 3 new people.",
         "Encourage a runner or cyclist.",
         "Eat a meal alone in public without your phone."
@@ -219,6 +228,24 @@ XP_VALUES = {
     "connector_2": 30,
     "leader_1": 35,
     "leader_2": 40
+}
+
+# Quest channel mappings
+QUEST_CHANNELS = {
+    "initiate": "initiate-quests",
+    "explorer": "explorer-quests",
+    "connector": "connector-quests",
+    "leader": "leader-quests",
+    "mentor": "mentor-quests"
+}
+
+# Define which quests each rank can access
+RANK_QUEST_ACCESS = {
+    1: ["initiate_1", "initiate_2"],  # Initiate
+    2: ["initiate_1", "explorer_1", "explorer_2"],  # Explorer
+    3: ["initiate_1", "explorer_1", "connector_1", "connector_2"],  # Connector
+    4: ["initiate_1", "explorer_1", "connector_1", "leader_1", "leader_2"],  # Leader
+    5: ["explorer_1", "connector_1", "connector_2", "leader_1", "leader_2"]  # Mentor
 }
 
 # ========================
@@ -301,23 +328,104 @@ async def assign_rank_role(member, rank_number):
 # QUEST ROTATION ENGINE
 # ========================
 
+def get_seven_day_quest(quest_key):
+    """Get a quest from the 7-day rotation pool, ensuring no repeats until all are used"""
+    today = today_est()
+    
+    # Check if we have an active cycle
+    cursor.execute("""
+        SELECT used_quests, cycle_start FROM quest_seven_day_pool
+        WHERE quest_key = ?
+    """, (quest_key,))
+    
+    result = cursor.fetchone()
+    
+    if result:
+        used_quests_str, cycle_start = result
+        used_quests = used_quests_str.split(',') if used_quests_str else []
+        
+        # Check if cycle needs reset (7 days have passed or all quests used)
+        cycle_start_date = datetime.fromisoformat(cycle_start).date()
+        days_since_start = (datetime.fromisoformat(today).date() - cycle_start_date).days
+        
+        if days_since_start >= 7 or len(used_quests) >= 7:
+            # Reset cycle
+            used_quests = []
+            cycle_start = today
+    else:
+        # Initialize new cycle
+        used_quests = []
+        cycle_start = today
+    
+    # Get available quests (not yet used in this cycle)
+    all_quests = QUEST_POOLS[quest_key]
+    available_quests = [q for q in all_quests if q not in used_quests]
+    
+    # If no quests available, reset
+    if not available_quests:
+        available_quests = all_quests
+        used_quests = []
+        cycle_start = today
+    
+    # Select random quest from available
+    chosen_quest = random.choice(available_quests)
+    
+    # Update used quests
+    used_quests.append(chosen_quest)
+    
+    # Save to database
+    cursor.execute("""
+        DELETE FROM quest_seven_day_pool WHERE quest_key = ?
+    """, (quest_key,))
+    
+    cursor.execute("""
+        INSERT INTO quest_seven_day_pool (quest_key, used_quests, cycle_start)
+        VALUES (?, ?, ?)
+    """, (quest_key, ','.join(used_quests), cycle_start))
+    
+    conn.commit()
+    
+    return chosen_quest
+
 def generate_daily_quests():
     today = today_est()
+    
+    # Check if quests already exist for today
+    cursor.execute("SELECT COUNT(*) FROM daily_quest_rotation WHERE date = ?", (today,))
+    if cursor.fetchone()[0] > 0:
+        return  # Already generated
+    
+    # Delete old quests
     cursor.execute("DELETE FROM daily_quest_rotation WHERE date != ?", (today,))
 
     for key, pool in QUEST_POOLS.items():
-        chosen = random.choice(pool)
+        # Check if this is a _1 or _2 type quest
+        if key.endswith("_1"):
+            # Simple random selection from 3 quests
+            chosen = random.choice(pool)
+        else:  # _2 type quests
+            # Use 7-day rotation logic
+            chosen = get_seven_day_quest(key)
+        
         xp = XP_VALUES[key]
+        rank = key.split("_")[0]
 
         cursor.execute("""
             INSERT INTO daily_quest_rotation (rank, quest_key, quest_name, xp, date)
             VALUES (?, ?, ?, ?, ?)
-        """, (key.split("_")[0], key, chosen, xp, today))
+        """, (rank, key, chosen, xp, today))
 
     conn.commit()
 
 def generate_weekly_quests():
     week = week_start_est()
+    
+    # Check if quests already exist for this week
+    cursor.execute("SELECT COUNT(*) FROM weekly_quest_rotation WHERE week_start = ?", (week,))
+    if cursor.fetchone()[0] > 0:
+        return  # Already generated
+    
+    # Delete old quests
     cursor.execute("DELETE FROM weekly_quest_rotation WHERE week_start != ?", (week,))
 
     for rank, (xp, pool) in WEEKLY_QUESTS.items():
@@ -343,30 +451,123 @@ def claim_quest(user_id, quest_key):
     conn.commit()
 
 # ========================
+# POST QUESTS TO CHANNELS
+# ========================
+
+async def post_daily_quests():
+    """Post daily quests to their respective channels"""
+    today = today_est()
+    week = week_start_est()
+    
+    for guild in bot.guilds:
+        # Post for each rank
+        for rank_num, rank_name in RANKS.items():
+            rank_name_lower = rank_name.lower()
+            channel = discord.utils.get(guild.text_channels, name=QUEST_CHANNELS[rank_name_lower])
+            
+            if not channel:
+                continue
+            
+            # Get accessible quests for this rank
+            accessible_quests = RANK_QUEST_ACCESS[rank_num]
+            
+            # Build embed
+            embed = discord.Embed(
+                title=f"📜 Daily Quests for {rank_name}",
+                description=f"Complete these quests today! Use the commands below to claim XP.",
+                color=0x00FF00,
+                timestamp=datetime.now(TZ)
+            )
+            
+            # Add daily quests
+            for quest_key in accessible_quests:
+                cursor.execute("""
+                    SELECT quest_name, xp FROM daily_quest_rotation
+                    WHERE quest_key = ? AND date = ?
+                """, (quest_key, today))
+                
+                result = cursor.fetchone()
+                if result:
+                    quest_name, xp = result
+                    command = f"!{quest_key}"
+                    embed.add_field(
+                        name=f"{quest_name} ({xp} XP)",
+                        value=f"Command: `{command}`",
+                        inline=False
+                    )
+            
+            # Get weekly quest for this rank
+            cursor.execute("""
+                SELECT quest_name, xp FROM weekly_quest_rotation
+                WHERE rank = ? AND week_start = ?
+            """, (rank_name_lower, week))
+            
+            weekly = cursor.fetchone()
+            if weekly:
+                quest_name, xp = weekly
+                embed.add_field(
+                    name=f"🌟 Weekly Quest ({xp} XP)",
+                    value=f"{quest_name}\n*Use `!{rank_name_lower}_weekly` to claim*",
+                    inline=False
+                )
+            
+            embed.set_footer(text="New quests posted daily at midnight EST")
+            
+            try:
+                await channel.send(embed=embed)
+            except Exception as e:
+                print(f"Error posting to {QUEST_CHANNELS[rank_name_lower]}: {e}")
+
+# ========================
 # DAILY SCHEDULER
 # ========================
 
-@tasks.loop(minutes=60)
+@tasks.loop(hours=24)
 async def daily_reset_task():
-    generate_daily_quests()
-    generate_weekly_quests()
+    """Reset quests at midnight EST"""
+    now = datetime.now(TZ)
+    # Check if it's midnight (00:00-00:59)
+    if now.hour == 0:
+        generate_daily_quests()
+        generate_weekly_quests()
+        await post_daily_quests()
 
-@bot.event
-async def on_ready():
-    print(f"✅ Logged in as {bot.user}")
-    daily_reset_task.start()
-    generate_daily_quests()
-    generate_weekly_quests()
+@daily_reset_task.before_loop
+async def before_daily_reset():
+    await bot.wait_until_ready()
+    # Calculate time until next midnight EST
+    now = datetime.now(TZ)
+    next_midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    wait_seconds = (next_midnight - now).total_seconds()
+    await asyncio.sleep(wait_seconds)
 
 # ========================
 # QUEST COMMANDS
 # ========================
 
 async def quest_command(ctx, quest_key):
+    # Check channel permissions
     if ctx.channel.name not in ALLOWED_QUEST_CHANNELS:
-        await ctx.send("❌ Quest commands can only be used in quest channels.")
+        valid_channel = False
+        for channel_name in QUEST_CHANNELS.values():
+            if ctx.channel.name == channel_name:
+                valid_channel = True
+                break
+        
+        if not valid_channel:
+            await ctx.send("❌ Quest commands can only be used in quest channels.")
+            return
+
+    # Get user's rank
+    user = get_user(ctx.author.id)
+    user_rank = user[2]
+    
+    # Check if user has access to this quest
+    if quest_key not in RANK_QUEST_ACCESS[user_rank]:
+        await ctx.send(f"❌ You don't have access to this quest. Your current rank is {RANKS[user_rank]}.")
         return
 
+    # Check if quest exists for today
     cursor.execute("""
         SELECT quest_name, xp FROM daily_quest_rotation
         WHERE quest_key = ? AND date = ?
@@ -379,55 +580,142 @@ async def quest_command(ctx, quest_key):
 
     quest_name, xp = result
 
+    # Check if already claimed
     if has_claimed(ctx.author.id, quest_key):
         await ctx.send("❌ You have already completed this quest today.")
         return
 
-    get_user(ctx.author.id)
+    # Award XP
+    old_xp = user[1]
     add_xp(ctx.author.id, xp)
     claim_quest(ctx.author.id, quest_key)
+    
+    # Check for rank up
+    new_xp = old_xp + xp
+    new_rank = get_rank_from_xp(new_xp)
+    old_rank = user[2]
+    
+    if new_rank > old_rank:
+        set_rank(ctx.author.id, new_rank)
+        await assign_rank_role(ctx.author, new_rank)
+        await ctx.send(
+            f"✅ Quest completed!\n"
+            f"Quest: {quest_name}\n"
+            f"XP Gained: {xp}\n"
+            f"🎉 **RANK UP!** You are now {RANKS[new_rank]}!"
+        )
+    else:
+        await ctx.send(
+            f"✅ Quest completed!\n"
+            f"Quest: {quest_name}\n"
+            f"XP Gained: {xp}"
+        )
 
-    await ctx.send(
-        f"✅ Quest completed!\n"
-        f"Quest: {quest['name']}\n"
-        f"XP Gained: {quest['xp']}"
-    )
-
-# Initiate
+# Daily Quest Commands
 @bot.command()
-async def initiate1(ctx):
+async def initiate_1(ctx):
     await quest_command(ctx, "initiate_1")
 
 @bot.command()
-async def initiate2(ctx):
+async def initiate_2(ctx):
     await quest_command(ctx, "initiate_2")
 
-# Explorer
 @bot.command()
-async def explorer1(ctx):
+async def explorer_1(ctx):
     await quest_command(ctx, "explorer_1")
 
 @bot.command()
-async def explorer2(ctx):
+async def explorer_2(ctx):
     await quest_command(ctx, "explorer_2")
 
-# Connector
 @bot.command()
-async def connector1(ctx):
+async def connector_1(ctx):
     await quest_command(ctx, "connector_1")
 
 @bot.command()
-async def connector2(ctx):
+async def connector_2(ctx):
     await quest_command(ctx, "connector_2")
 
-# Leader
 @bot.command()
-async def leader1(ctx):
+async def leader_1(ctx):
     await quest_command(ctx, "leader_1")
 
 @bot.command()
-async def leader2(ctx):
+async def leader_2(ctx):
     await quest_command(ctx, "leader_2")
+
+# Weekly Quest Commands
+async def weekly_quest_command(ctx, rank_name):
+    user = get_user(ctx.author.id)
+    user_rank = user[2]
+    user_rank_name = RANKS[user_rank].lower()
+    
+    # Check if user's rank matches the quest rank
+    if user_rank_name != rank_name:
+        await ctx.send(f"❌ You cannot claim this weekly quest. Your current rank is {RANKS[user_rank]}.")
+        return
+    
+    week = week_start_est()
+    quest_key = f"weekly_{rank_name}_{week}"
+    
+    if has_claimed(ctx.author.id, quest_key):
+        await ctx.send("❌ You have already completed your weekly quest this week.")
+        return
+    
+    cursor.execute("""
+        SELECT quest_name, xp FROM weekly_quest_rotation
+        WHERE rank = ? AND week_start = ?
+    """, (rank_name, week))
+    
+    result = cursor.fetchone()
+    if not result:
+        await ctx.send("❌ No weekly quest available.")
+        return
+    
+    quest_name, xp = result
+    
+    old_xp = user[1]
+    add_xp(ctx.author.id, xp)
+    claim_quest(ctx.author.id, quest_key)
+    
+    new_xp = old_xp + xp
+    new_rank = get_rank_from_xp(new_xp)
+    
+    if new_rank > user_rank:
+        set_rank(ctx.author.id, new_rank)
+        await assign_rank_role(ctx.author, new_rank)
+        await ctx.send(
+            f"✅ Weekly quest completed!\n"
+            f"Quest: {quest_name}\n"
+            f"XP Gained: {xp}\n"
+            f"🎉 **RANK UP!** You are now {RANKS[new_rank]}!"
+        )
+    else:
+        await ctx.send(
+            f"✅ Weekly quest completed!\n"
+            f"Quest: {quest_name}\n"
+            f"XP Gained: {xp}"
+        )
+
+@bot.command()
+async def initiate_weekly(ctx):
+    await weekly_quest_command(ctx, "initiate")
+
+@bot.command()
+async def explorer_weekly(ctx):
+    await weekly_quest_command(ctx, "explorer")
+
+@bot.command()
+async def connector_weekly(ctx):
+    await weekly_quest_command(ctx, "connector")
+
+@bot.command()
+async def leader_weekly(ctx):
+    await weekly_quest_command(ctx, "leader")
+
+@bot.command()
+async def mentor_weekly(ctx):
+    await weekly_quest_command(ctx, "mentor")
 
 # ========================
 # STREAK HANDLING
@@ -435,7 +723,11 @@ async def leader2(ctx):
 
 def update_streak(user_id):
     cursor.execute("SELECT last_quest_date, streak FROM users WHERE user_id = ?", (user_id,))
-    last_date, streak = cursor.fetchone()
+    result = cursor.fetchone()
+    if not result:
+        return 1
+    
+    last_date, streak = result
     today = datetime.utcnow().date()
 
     if last_date:
@@ -443,14 +735,10 @@ def update_streak(user_id):
         delta_days = (today - last_date).days
 
         if delta_days == 1:
-            # consecutive day, increment streak
             streak += 1
         elif delta_days > 1:
-            # missed one or more days, reset streak
-            streak = 0
-        # if delta_days == 0: same day, streak doesn't change
+            streak = 1
     else:
-        # first quest ever
         streak = 1
 
     cursor.execute(
@@ -515,7 +803,20 @@ class RankSelectView(View):
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
+    
+    # Add persistent view for buttons
     bot.add_view(RankSelectView(0))
+    
+    # Generate quests if they don't exist
+    generate_daily_quests()
+    generate_weekly_quests()
+    
+    # Post quests to channels on startup
+    await post_daily_quests()
+    
+    # Start daily reset task
+    if not daily_reset_task.is_running():
+        daily_reset_task.start()
 
 @bot.event
 async def on_member_join(member):
@@ -656,5 +957,7 @@ async def givexp_error(ctx, error):
 # ========================
 # START BOT
 # ========================
+
+import asyncio
 
 bot.run(os.getenv("DISCORD_TOKEN"))
