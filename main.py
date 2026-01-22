@@ -468,7 +468,12 @@ async def post_daily_quests():
         # Post for each rank
         for rank_num, rank_name in RANKS.items():
             rank_name_lower = rank_name.lower()
-            channel = discord.utils.get(guild.text_channels, name=QUEST_CHANNELS[rank_name_lower])
+            channel_name = QUEST_CHANNELS[rank_name_lower].lower()
+            channel = discord.utils.find(
+                lambda c: c.name.lower() == channel_name,
+                guild.text_channels
+            )
+
             
             if not channel:
                 continue
