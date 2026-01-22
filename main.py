@@ -827,7 +827,7 @@ async def on_reaction_add(reaction, user):
 
     # Grant XP to original author
     xp_to_add = min(STORY_XP_PER_REACTION, STORY_XP_MAX - current_xp)
-    log_xp(author_id, xp_to_add)
+    add_xp(author_id, xp_to_add)
 
     # Log reaction
     cursor.execute("""
@@ -937,7 +937,8 @@ async def on_ready():
     print(f"✅ Logged in as {bot.user}")
     
     # Add persistent view for buttons
-    bot.add_view(RankSelectView(0))
+    if not any(isinstance(v, RankSelectView) for v in bot._view_store._views.values()):
+        bot.add_view(RankSelectView(0))
     
     # Generate quests if they don't exist
     generate_daily_quests()
