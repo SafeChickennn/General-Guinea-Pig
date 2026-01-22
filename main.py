@@ -84,6 +84,7 @@ intents.message_content = True
 intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
+bot._ready_ran = False
 
 # ========================
 # TIMEZONE
@@ -459,43 +460,46 @@ async def post_daily_quests():
     """Post daily quests to their respective channels"""
     today = today_est()
 
+    # 🔧 NEW: prevent duplicate posting
+    cursor.execute("SELECT 1 FROM daily_quest_post_log WHERE date = ?", (today,))
+    if cursor.fetchone():
+        return  # already posted today
+
+    # Ensure quests exist
     cursor.execute("SELECT COUNT(*) FROM daily_quest_rotation WHERE date = ?", (today,))
     if cursor.fetchone()[0] == 0:
         return  # quests not generated yet
+
     week = week_start_est()
-    
+
     for guild in bot.guilds:
-        # Post for each rank
         for rank_num, rank_name in RANKS.items():
             rank_name_lower = rank_name.lower()
             channel_name = QUEST_CHANNELS[rank_name_lower].lower()
+
             channel = discord.utils.find(
                 lambda c: c.name.lower() == channel_name,
                 guild.text_channels
             )
 
-            
             if not channel:
                 continue
-            
-            # Get accessible quests for this rank
+
             accessible_quests = RANK_QUEST_ACCESS[rank_num]
-            
-            # Build embed
+
             embed = discord.Embed(
                 title=f"📜 Daily Quests for {rank_name}",
-                description=f"Complete these quests today! Use the commands below to claim XP.",
+                description="Complete these quests today! Use the commands below to claim XP.",
                 color=0x00FF00,
                 timestamp=datetime.now(TZ)
             )
-            
-            # Add daily quests
+
             for quest_key in accessible_quests:
                 cursor.execute("""
                     SELECT quest_name, xp FROM daily_quest_rotation
                     WHERE quest_key = ? AND date = ?
                 """, (quest_key, today))
-                
+
                 result = cursor.fetchone()
                 if result:
                     quest_name, xp = result
@@ -505,13 +509,12 @@ async def post_daily_quests():
                         value=f"Command: `{command}`",
                         inline=False
                     )
-            
-            # Get weekly quest for this rank
+
             cursor.execute("""
                 SELECT quest_name, xp FROM weekly_quest_rotation
                 WHERE rank = ? AND week_start = ?
             """, (rank_name_lower, week))
-            
+
             weekly = cursor.fetchone()
             if weekly:
                 quest_name, xp = weekly
@@ -520,13 +523,20 @@ async def post_daily_quests():
                     value=f"{quest_name}\n*Use `!{rank_name_lower}weekly` to claim*",
                     inline=False
                 )
-            
+
             embed.set_footer(text="New quests posted daily at midnight EST")
-            
+
             try:
                 await channel.send(embed=embed)
             except Exception as e:
-                print(f"Error posting to {QUEST_CHANNELS[rank_name_lower]}: {e}")
+                print(f"Error posting to {channel_name}: {e}")
+
+    # 🔧 NEW: mark quests as posted for today
+    cursor.execute(
+        "INSERT OR IGNORE INTO daily_quest_post_log (date) VALUES (?)",
+        (today,)
+    )
+    conn.commit()
 
 # ========================
 # DAILY SCHEDULER
@@ -902,8 +912,6 @@ class RankSelectView(View):
             await interaction.response.send_message("❌ This selection is not for you.", ephemeral=True)
             return
 
-        await interaction.response.defer()
-
         member = interaction.user
         guild = interaction.guild
 
@@ -934,22 +942,23 @@ class RankSelectView(View):
 
 @bot.event
 async def on_ready():
+    if bot._ready_ran:
+        return
+
+    bot._ready_ran = True
 
     print(f"✅ Logged in as {bot.user}")
-    
-    # Add persistent view for buttons
+
     bot.add_view(RankSelectView(0))
-    
-    # Generate quests if they don't exist
+
     generate_daily_quests()
     generate_weekly_quests()
-    
-    # Post quests to channels on startup
+
     await post_daily_quests()
-    
-    # Start daily reset task
+
     if not daily_reset_task.is_running():
         daily_reset_task.start()
+
 
 @bot.event
 async def on_member_join(member):
@@ -1090,7 +1099,5 @@ async def givexp_error(ctx, error):
 # ========================
 # START BOT
 # ========================
-
-import asyncio
 
 bot.run(os.getenv("DISCORD_TOKEN"))
