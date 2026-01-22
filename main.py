@@ -3,6 +3,7 @@ import discord
 from discord.ext import commands, tasks
 from discord.ui import View, Button
 import os
+import asyncio
 from datetime import datetime, timedelta
 import random
 from zoneinfo import ZoneInfo
@@ -131,7 +132,7 @@ RANK_LOOKUP = {
 QUEST_POOLS = {
     "initiate_1": [
         "Smile at 5 people.",
-        "Say "Hi" or "Good morning" to 3 people.",
+        "Say 'Hi' or 'Good morning' to 3 people.",
         "Make eye contact with 5 strangers."
     ],
     "initiate_2": [
@@ -457,6 +458,10 @@ def claim_quest(user_id, quest_key):
 async def post_daily_quests():
     """Post daily quests to their respective channels"""
     today = today_est()
+
+    cursor.execute("SELECT COUNT(*) FROM daily_quest_rotation WHERE date = ?", (today,))
+    if cursor.fetchone()[0] == 0:
+        return  # quests not generated yet
     week = week_start_est()
     
     for guild in bot.guilds:
@@ -589,6 +594,8 @@ async def quest_command(ctx, quest_key):
     old_xp = user[1]
     add_xp(ctx.author.id, xp)
     claim_quest(ctx.author.id, quest_key)
+
+    update_streak(ctx.author.id)
     
     # Check for rank up
     new_xp = old_xp + xp
