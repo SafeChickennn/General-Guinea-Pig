@@ -494,7 +494,7 @@ async def post_daily_quests():
                 result = cursor.fetchone()
                 if result:
                     quest_name, xp = result
-                    command = f"!{quest_key}"
+                    command = f"!{quest_key.replace('_', '')}"
                     embed.add_field(
                         name=f"{quest_name} ({xp} XP)",
                         value=f"Command: `{command}`",
@@ -619,35 +619,35 @@ async def quest_command(ctx, quest_key):
         )
 
 # Daily Quest Commands
-@bot.command()
+@bot.command(name="initiate1")
 async def initiate_1(ctx):
     await quest_command(ctx, "initiate_1")
 
-@bot.command()
+@bot.command(name="initiate2")
 async def initiate_2(ctx):
     await quest_command(ctx, "initiate_2")
 
-@bot.command()
+@bot.command(name="explorer1")
 async def explorer_1(ctx):
     await quest_command(ctx, "explorer_1")
 
-@bot.command()
+@bot.command(name="explorer2")
 async def explorer_2(ctx):
     await quest_command(ctx, "explorer_2")
 
-@bot.command()
+@bot.command(name="connector1")
 async def connector_1(ctx):
     await quest_command(ctx, "connector_1")
 
-@bot.command()
+@bot.command(name="connector2")
 async def connector_2(ctx):
     await quest_command(ctx, "connector_2")
 
-@bot.command()
+@bot.command(name="leader1")
 async def leader_1(ctx):
     await quest_command(ctx, "leader_1")
 
-@bot.command()
+@bot.command(name="leader2")
 async def leader_2(ctx):
     await quest_command(ctx, "leader_2")
 
