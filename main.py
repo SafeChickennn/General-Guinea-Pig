@@ -934,11 +934,15 @@ class RankSelectView(View):
 
 @bot.event
 async def on_ready():
+    global already_ready
+    if already_ready:
+        return  # Skip duplicate calls
+    already_ready = True
+
     print(f"✅ Logged in as {bot.user}")
     
     # Add persistent view for buttons
-    if not any(isinstance(v, RankSelectView) for v in bot._view_store._views.values()):
-        bot.add_view(RankSelectView(0))
+    bot.add_view(RankSelectView(0))
     
     # Generate quests if they don't exist
     generate_daily_quests()
