@@ -827,7 +827,7 @@ async def on_reaction_add(reaction, user):
 
     # Grant XP to original author
     xp_to_add = min(STORY_XP_PER_REACTION, STORY_XP_MAX - current_xp)
-    add_xp(author_id, xp_to_add)
+    log_xp(author_id, xp_to_add)
 
     # Log reaction
     cursor.execute("""
