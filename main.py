@@ -730,6 +730,126 @@ async def mentor_weekly(ctx):
     await weekly_quest_command(ctx, "mentor")
 
 # ========================
+# STORY SHARING
+# ========================
+
+STORY_CHANNEL = ["story-feed"]
+STORY_XP_PER_REACTION = 2
+STORY_XP_MAX = 10
+
+# Create tables for story tracking
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS story_posts (
+    message_id INTEGER PRIMARY KEY,
+    author_id INTEGER,
+    xp_awarded INTEGER DEFAULT 0,
+    date_posted TEXT
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS story_reactions (
+    message_id INTEGER,
+    reactor_id INTEGER,
+    date TEXT,
+    PRIMARY KEY(message_id, reactor_id)
+)
+""")
+conn.commit()
+
+# Command to submit a story
+@bot.command()
+async def story(ctx, *, content: str):
+    """Submit a story or experience to share with the server."""
+    if ctx.channel.name not in STORY_CHANNEL:
+        await ctx.send(f"❌ Stories can only be submitted in: {', '.join(STORY_CHANNEL)}")
+        return
+
+    # Remove original user message
+    try:
+        await ctx.message.delete()
+    except:
+        pass
+
+    # Create embed with user's name
+    embed = discord.Embed(
+        title=f"📖 {ctx.author.display_name}'s Story!",
+        description=content,
+        color=0xFFA500,
+        timestamp=datetime.now(TZ)
+    )
+    embed.set_footer(text=f"React to award XP! Max {STORY_XP_MAX} XP per story.")
+
+    # Send bot repost
+    bot_message = await ctx.send(embed=embed)
+
+    # Track in database
+    today = today_est()
+    cursor.execute("""
+        INSERT INTO story_posts (message_id, author_id, xp_awarded, date_posted)
+        VALUES (?, ?, ?, ?)
+    """, (bot_message.id, ctx.author.id, 0, today))
+    conn.commit()
+
+# Reaction listener to grant XP
+@bot.event
+async def on_reaction_add(reaction, user):
+    """Award XP when someone reacts to a story embed."""
+    if user.bot:
+        return  # Ignore bot reactions
+
+    message = reaction.message
+
+    # Only allow reactions in story channel
+    if message.channel.name not in STORY_CHANNEL:
+        return
+
+    # Check if this message is a tracked story
+    cursor.execute("SELECT author_id, xp_awarded FROM story_posts WHERE message_id = ?", (message.id,))
+    result = cursor.fetchone()
+    if not result:
+        return  # Not a story post
+
+    author_id, current_xp = result
+
+    # Check if reactor has already given a story XP today
+    today = today_est()
+    cursor.execute("""
+        SELECT 1 FROM story_reactions
+        WHERE message_id = ? AND reactor_id = ? AND date = ?
+    """, (message.id, user.id, today))
+    if cursor.fetchone():
+        return  # Reactor already gave XP today for this story
+
+    # Only give XP if story hasn't reached max
+    if current_xp >= STORY_XP_MAX:
+        return  # Max XP reached
+
+    # Grant XP to original author
+    xp_to_add = min(STORY_XP_PER_REACTION, STORY_XP_MAX - current_xp)
+    add_xp(author_id, xp_to_add)
+
+    # Log reaction
+    cursor.execute("""
+        INSERT INTO story_reactions (message_id, reactor_id, date)
+        VALUES (?, ?, ?)
+    """, (message.id, user.id, today))
+
+    # Update XP in story_posts table
+    cursor.execute("""
+        UPDATE story_posts SET xp_awarded = xp_awarded + ? WHERE message_id = ?
+    """, (xp_to_add, message.id))
+    conn.commit()
+
+    # Optionally, notify the author in the channel
+    author = message.guild.get_member(author_id)
+    if author:
+        try:
+            await message.channel.send(f"🎉 {author.mention} received {xp_to_add} XP for their story!")
+        except:
+            pass
+
+# ========================
 # STREAK HANDLING
 # ========================
 
