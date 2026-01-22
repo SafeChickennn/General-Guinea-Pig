@@ -517,7 +517,7 @@ async def post_daily_quests():
                 quest_name, xp = weekly
                 embed.add_field(
                     name=f"🌟 Weekly Quest ({xp} XP)",
-                    value=f"{quest_name}\n*Use `!{rank_name_lower}_weekly` to claim*",
+                    value=f"{quest_name}\n*Use `!{rank_name_lower}weekly` to claim*",
                     inline=False
                 )
             
