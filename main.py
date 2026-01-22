@@ -934,10 +934,6 @@ class RankSelectView(View):
 
 @bot.event
 async def on_ready():
-    global already_ready
-    if already_ready:
-        return  # Skip duplicate calls
-    already_ready = True
 
     print(f"✅ Logged in as {bot.user}")
     
