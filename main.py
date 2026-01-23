@@ -127,15 +127,25 @@ RANKS = {
     2: "Explorer",
     3: "Connector",
     4: "Leader",
-    5: "Mentor"
+    5: "Master"
 }
 
-RANK_LOOKUP = {
-    "initiate": 1,
-    "explorer": 2,
-    "connector": 3,
-    "leader": 4,
-    "mentor": 5
+# XP thresholds for ranks
+RANK_XP_THRESHOLDS = {
+    1: (0, 150),
+    2: (150, 650),
+    3: (650, 1600),
+    4: (1600, 3200),
+    5: (3200, float("inf"))
+}
+
+# Tier thresholds within ranks
+RANK_TIERS = {
+    "Initiate": [],  # No tiers
+    "Explorer": [150, 300, 450],
+    "Connector": [650, 800, 1000, 1200, 1400],
+    "Leader": [1600, 1900, 2200, 2500, 2800],
+    "Master": [3200, 4200, 5200, 6200, 7200]
 }
 
 # ========================
@@ -202,17 +212,17 @@ QUEST_POOLS = {
 }
 
 WEEKLY_QUESTS = {
-    "initiate": (20, [
+    "initiate": (15, [
         "Ask someone about their day.",
         "Ask someone what the time is."
     ]),
-    "explorer": (40, [
+    "explorer": (30, [
         "End a conversation early, but confidently and politely.",
         "Introduce yourself to someone new.",
         "In an awkward silence, stay present and let others fill the silence."
     ]),
-    "connector": (60, [
-        "Ask for someone's contact details.",
+    "connector": (45, [
+        "Exchange contact details with someone.",
         "At a social event, talk to 3 new people.",
         "Encourage a runner or cyclist.",
         "Eat a meal alone in public without your phone."
@@ -224,7 +234,7 @@ WEEKLY_QUESTS = {
         "Keep a conversation going for 15 minutes without checking your phone or escaping.",
         "Organise a group activity like a dinner walk or social event."
     ]),
-    "mentor": (80, [
+    "mentor": (75, [
         "Support someone through a vulnerable conversation.",
         "Spend a full day saying yes to social opportunities.",
         "Be the person who welcomes newcomers into a space.",
@@ -301,16 +311,25 @@ def set_rank(user_id, rank):
     conn.commit()
 
 def get_rank_from_xp(xp):
-    if xp >= 1000:
-        return 5
-    elif xp >= 600:
-        return 4
-    elif xp >= 300:
-        return 3
-    elif xp >= 100:
-        return 2
-    else:
-        return 1
+    """Return rank number based on XP"""
+    for rank, (min_xp, max_xp) in RANK_XP_THRESHOLDS.items():
+        if min_xp <= xp < max_xp:
+            return rank
+    return 5  # Master if XP exceeds highest threshold
+
+def get_tier_from_xp(rank_number, xp):
+    """Return tier number (1-based) for a rank. Returns None if no tiers."""
+    rank_name = RANKS[rank_number]
+    tiers = RANK_TIERS.get(rank_name, [])
+    if not tiers:
+        return None
+    tier_number = 0
+    for threshold in tiers:
+        if xp >= threshold:
+            tier_number += 1
+        else:
+            break
+    return tier_number if tier_number > 0 else 1
 
 async def assign_rank_role(member, rank_number):
     guild = member.guild
@@ -632,22 +651,24 @@ async def quest_command(ctx, quest_key):
     new_xp = old_xp + xp
     new_rank = get_rank_from_xp(new_xp)
     old_rank = user[2]
-    
+    old_tier = get_tier_from_xp(old_rank, old_xp)
+    new_tier = get_tier_from_xp(new_rank, new_xp)
+
+    # Determine message
+    message_parts = [f"✅ Quest completed!\nQuest: {quest_name}\nXP Gained: {xp}"]
+
+    # Rank up
     if new_rank > old_rank:
         set_rank(ctx.author.id, new_rank)
         await assign_rank_role(ctx.author, new_rank)
-        await ctx.send(
-            f"✅ Quest completed!\n"
-            f"Quest: {quest_name}\n"
-            f"XP Gained: {xp}\n"
-            f"🎉 **RANK UP!** You are now {RANKS[new_rank]}!"
-        )
-    else:
-        await ctx.send(
-            f"✅ Quest completed!\n"
-            f"Quest: {quest_name}\n"
-            f"XP Gained: {xp}"
-        )
+        message_parts.append(f"🎉 **RANK UP!** You are now {RANKS[new_rank]}!")
+    
+    # Tier up (even if rank didn't change)
+    elif new_tier > old_tier:
+        message_parts.append(f"✨ **TIER UP!** You are now {RANKS[new_rank]} — Tier {new_tier}!")
+
+    await ctx.send("\n".join(message_parts))
+
 
 # Daily Quest Commands
 @bot.command(name="initiate1")
@@ -719,21 +740,26 @@ async def weekly_quest_command(ctx, rank_name):
     new_xp = old_xp + xp
     new_rank = get_rank_from_xp(new_xp)
     
-    if new_rank > user_rank:
+    new_xp = old_xp + xp
+    new_rank = get_rank_from_xp(new_xp)
+    old_rank = user[2]
+    old_tier = get_tier_from_xp(old_rank, old_xp)
+    new_tier = get_tier_from_xp(new_rank, new_xp)
+
+    # Determine message
+    message_parts = [f"✅ Weekly quest completed!\nQuest: {quest_name}\nXP Gained: {xp}"]
+
+    # Rank up
+    if new_rank > old_rank:
         set_rank(ctx.author.id, new_rank)
         await assign_rank_role(ctx.author, new_rank)
-        await ctx.send(
-            f"✅ Weekly quest completed!\n"
-            f"Quest: {quest_name}\n"
-            f"XP Gained: {xp}\n"
-            f"🎉 **RANK UP!** You are now {RANKS[new_rank]}!"
-        )
-    else:
-        await ctx.send(
-            f"✅ Weekly quest completed!\n"
-            f"Quest: {quest_name}\n"
-            f"XP Gained: {xp}"
-        )
+        message_parts.append(f"🎉 **RANK UP!** You are now {RANKS[new_rank]}!")
+
+    # Tier up (even if rank didn't change)
+    elif new_tier > old_tier:
+        message_parts.append(f"✨ **TIER UP!** You are now {RANKS[new_rank]} — Tier {new_tier}!")
+
+    await ctx.send("\n".join(message_parts))
 
 @bot.command(name="initiateweekly")
 async def initiate_weekly(ctx):
@@ -921,7 +947,7 @@ class RankSelectView(View):
 
     @discord.ui.button(label="🔵 Start as Explorer", style=discord.ButtonStyle.primary, custom_id="rank_explorer")
     async def explorer_button(self, interaction: discord.Interaction, button: Button):
-        await self.assign_rank(interaction, 2, 100)
+        await self.assign_rank(interaction, 2, 150)
 
     async def assign_rank(self, interaction: discord.Interaction, rank_number, bonus_xp):
         if interaction.user.id != self.member_id:
