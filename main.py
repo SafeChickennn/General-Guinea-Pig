@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 # DATABASE SETUP
 # ========================
 
-conn = sqlite3.connect("bot.db")
+conn = sqlite3.connect("/data/bot.db", check_same_thread=False)
 cursor = conn.cursor()
 
 cursor.execute("""
@@ -73,6 +73,12 @@ CREATE TABLE IF NOT EXISTS quest_claims (
 )
 """)
 
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS daily_quest_post_log (
+    date TEXT PRIMARY KEY
+)
+""")
+
 conn.commit()
 
 # ========================
@@ -85,6 +91,12 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 bot._ready_ran = False
+
+@bot.event
+async def on_ready():
+    if bot._ready_ran:
+        return
+    bot._ready_ran = True
 
 # ========================
 # TIMEZONE
@@ -542,15 +554,19 @@ async def post_daily_quests():
 # DAILY SCHEDULER
 # ========================
 
-@tasks.loop(hours=24)
+@tasks.loop(minutes=5)
 async def daily_reset_task():
-    """Reset quests at midnight EST"""
-    now = datetime.now(TZ)
-    # Check if it's midnight (00:00-00:59)
-    if now.hour == 0:
-        generate_daily_quests()
-        generate_weekly_quests()
-        await post_daily_quests()
+    today = today_est()
+    cursor.execute(
+        "SELECT 1 FROM daily_quest_post_log WHERE date = ?",
+        (today,)
+    )
+    if cursor.fetchone():
+        return
+
+    generate_daily_quests()
+    generate_weekly_quests()
+    await post_daily_quests()
 
 @daily_reset_task.before_loop
 async def before_daily_reset():
