@@ -1059,6 +1059,7 @@ async def progress(ctx):
 async def leaderboard(ctx, category: str):
     category = category.lower()
 
+    # Ensure all members exist in DB
     for member in ctx.guild.members:
         if not member.bot:
             get_user(member.id)
@@ -1077,6 +1078,15 @@ async def leaderboard(ctx, category: str):
         await ctx.send(embed=embed)
         return
 
+    # Map rank name to number
+    RANK_LOOKUP = {
+        "initiate": 1,
+        "explorer": 2,
+        "connector": 3,
+        "leader": 4,
+        "master": 5
+    }
+
     if category not in RANK_LOOKUP:
         await ctx.send("❌ Invalid leaderboard category.")
         return
@@ -1089,7 +1099,8 @@ async def leaderboard(ctx, category: str):
     cursor.execute("""
         SELECT users.user_id, COALESCE(SUM(xp_log.xp), 0) as weekly_xp
         FROM users
-        LEFT JOIN xp_log ON users.user_id = xp_log.user_id AND xp_log.timestamp >= ?
+        LEFT JOIN xp_log ON users.user_id = xp_log.user_id
+            AND xp_log.timestamp >= ?
         WHERE users.rank = ?
         GROUP BY users.user_id
         ORDER BY weekly_xp DESC
@@ -1118,25 +1129,37 @@ async def givexp(ctx, member: discord.Member, amount: int):
         return
 
     get_user(member.id)
+
+    # Get current XP and tier
+    cursor.execute("SELECT xp, rank FROM users WHERE user_id = ?", (member.id,))
+    user_data = cursor.fetchone()
+    old_xp = user_data[0]
+    old_rank = user_data[1]
+    old_tier = get_tier_from_xp(old_rank, old_xp)
+
+    # Add XP
     add_bonus_xp(member.id, amount)
 
+    # Get new XP, rank, and tier
     cursor.execute("SELECT xp FROM users WHERE user_id = ?", (member.id,))
-    total_xp = cursor.fetchone()[0]
+    new_xp = cursor.fetchone()[0]
+    new_rank = get_rank_from_xp(new_xp)
+    new_tier = get_tier_from_xp(new_rank, new_xp)
 
-    new_rank = get_rank_from_xp(total_xp)
-    set_rank(member.id, new_rank)
-    await assign_rank_role(member, new_rank)
+    # Update rank role if rank changed
+    if new_rank != old_rank:
+        set_rank(member.id, new_rank)
+        await assign_rank_role(member, new_rank)
 
-    await ctx.send(
-        f"✅ {member.mention} received {amount} XP\n"
-        f"New Total: {total_xp} XP\n"
-        f"New Rank: {RANKS[new_rank]}"
-    )
+    # Build message
+    message_parts = [f"✅ {member.mention} received {amount} XP\nNew Total: {new_xp} XP"]
 
-@givexp.error
-async def givexp_error(ctx, error):
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ You do not have permission to use this command.")
+    if new_rank > old_rank:
+        message_parts.append(f"🎉 **RANK UP!** You are now {RANKS[new_rank]}!")
+    elif new_tier > old_tier:
+        message_parts.append(f"✨ **TIER UP!** You are now {RANKS[new_rank]} — Tier {new_tier}!")
+
+    await ctx.send("\n".join(message_parts))
 
 # ========================
 # START BOT
