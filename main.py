@@ -139,11 +139,11 @@ RANK_ROLE_NAMES = {
 }
 
 RANK_COLORS = {
-    "Initiate": 0xAAAAAA,
-    "Explorer": 0x4CAF50,
-    "Connector": 0x2196F3,
-    "Leader": 0xFF9800,
-    "Master": 0x9C27B0
+    "Initiate": 0x2ECC71,
+    "Explorer": 0x3498DB,
+    "Connector": 0x9B59B6,
+    "Leader": 0xE91E63,
+    "Master": 0xF1C40F
 }
 
 # XP thresholds for ranks
