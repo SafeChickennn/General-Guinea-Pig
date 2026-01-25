@@ -130,6 +130,22 @@ RANKS = {
     5: "Master"
 }
 
+RANK_ROLE_NAMES = {
+    "Initiate": "Initiate",
+    "Explorer": "Explorer",
+    "Connector": "Connector",
+    "Leader": "Leader",
+    "Master": "Master"
+}
+
+RANK_COLORS = {
+    "Initiate": 0xAAAAAA,
+    "Explorer": 0x4CAF50,
+    "Connector": 0x2196F3,
+    "Leader": 0xFF9800,
+    "Master": 0x9C27B0
+}
+
 # XP thresholds for ranks
 RANK_XP_THRESHOLDS = {
     1: (0, 150),
@@ -234,7 +250,7 @@ WEEKLY_QUESTS = {
         "Keep a conversation going for 15 minutes without checking your phone or escaping.",
         "Organise a group activity like a dinner walk or social event."
     ]),
-    "mentor": (75, [
+    "master": (75, [
         "Support someone through a vulnerable conversation.",
         "Spend a full day saying yes to social opportunities.",
         "Be the person who welcomes newcomers into a space.",
@@ -260,7 +276,7 @@ QUEST_CHANNELS = {
     "explorer": "explorer-quests",
     "connector": "connector-quests",
     "leader": "leader-quests",
-    "mentor": "mentor-quests"
+    "master": "master-quests"
 }
 
 # Define which quests each rank can access
@@ -269,7 +285,7 @@ RANK_QUEST_ACCESS = {
     2: ["initiate_1", "explorer_1", "explorer_2"],  # Explorer
     3: ["initiate_1", "explorer_1", "connector_1", "connector_2"],  # Connector
     4: ["initiate_1", "explorer_1", "connector_1", "leader_1", "leader_2"],  # Leader
-    5: ["explorer_1", "connector_1", "connector_2", "leader_1", "leader_2"]  # Mentor
+    5: ["explorer_1", "connector_1", "connector_2", "leader_1", "leader_2"]  # Master
 }
 
 # ========================
@@ -315,7 +331,7 @@ def get_rank_from_xp(xp):
     for rank, (min_xp, max_xp) in RANK_XP_THRESHOLDS.items():
         if min_xp <= xp < max_xp:
             return rank
-    return 5  # Master if XP exceeds highest threshold
+    return 5  # Maser if XP exceeds highest threshold
 
 def get_tier_from_xp(rank_number, xp):
     """Return tier number (1-based) for a rank. Returns None if no tiers."""
@@ -518,10 +534,13 @@ async def post_daily_quests():
 
             accessible_quests = RANK_QUEST_ACCESS[rank_num]
 
+            role = discord.utils.get(guild.roles, name=RANK_ROLE_NAMES[rank_name])
+            role_mention = role.mention if role else ""
+
             embed = discord.Embed(
                 title=f"📜 Daily Quests for {rank_name}",
                 description="Complete these quests today! Use the commands below to claim XP.",
-                color=0x00FF00,
+                color=RANK_COLORS.get(rank_name, 0xFFFFFF),
                 timestamp=datetime.now(TZ)
             )
 
@@ -558,7 +577,10 @@ async def post_daily_quests():
             embed.set_footer(text="New quests posted daily at midnight EST")
 
             try:
-                await channel.send(embed=embed)
+                await channel.send(
+                    content=role_mention,
+                    embed=embed
+                )
             except Exception as e:
                 print(f"Error posting to {channel_name}: {e}")
 
@@ -777,9 +799,9 @@ async def connector_weekly(ctx):
 async def leader_weekly(ctx):
     await weekly_quest_command(ctx, "leader")
 
-@bot.command(name="mentorweekly")
-async def mentor_weekly(ctx):
-    await weekly_quest_command(ctx, "mentor")
+@bot.command(name="masterweekly")
+async def master_weekly(ctx):
+    await weekly_quest_command(ctx, "master")
 
 # ========================
 # STORY SHARING
@@ -1040,12 +1062,13 @@ async def on_member_join(member):
 # ========================
 
 @bot.command()
-async def progress(ctx):
-    user = get_user(ctx.author.id)
+async def progress(ctx, member: discord.Member = None):
+    target = member or ctx.author
+    user = get_user(target.id)
     xp, rank_number, streak = user[1], user[2], user[3]
 
     await ctx.send(
-        f"📊 **{ctx.author.display_name}'s Stats**\n"
+        f"📊 **{target.display_name}'s Stats**\n"
         f"XP: {xp}\n"
         f"Rank: {RANKS[rank_number]}\n"
         f"Streak: {streak}"
@@ -1160,6 +1183,21 @@ async def givexp(ctx, member: discord.Member, amount: int):
         message_parts.append(f"✨ **TIER UP!** You are now {RANKS[new_rank]} — Tier {new_tier}!")
 
     await ctx.send("\n".join(message_parts))
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def resetxp(ctx, member: discord.Member):
+    get_user(member.id)
+
+    cursor.execute(
+        "UPDATE users SET xp = 0, rank = 1 WHERE user_id = ?",
+        (member.id,)
+    )
+    conn.commit()
+
+    await assign_rank_role(member, 1)
+
+    await ctx.send(f"⚠️ {member.mention}'s XP and rank have been reset to Initiate.")
 
 # ========================
 # START BOT
