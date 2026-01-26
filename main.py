@@ -1155,7 +1155,8 @@ async def profile(ctx, member: discord.Member = None):
     user = get_user(target.id)
 
     xptotal = user[1]
-    streak = user[3]
+    earnedxp = user[2]  
+    streak = user[4]
 
     # ALWAYS compute rank & tier from XP
     rank_number = get_rank_from_xp(xptotal)
