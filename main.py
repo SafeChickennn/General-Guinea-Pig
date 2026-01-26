@@ -1170,7 +1170,7 @@ async def progress(ctx, member: discord.Member = None):
             xp_to_next_goal = max(0, next_goal_xp - xp)
 
     embed = discord.Embed(
-        title=f" {target.display_name}'s Profile
+        title=f"{target.display_name}'s Profile",
         description=f"**{rank_name}**",
         color=rank_color
     )
