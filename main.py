@@ -17,7 +17,7 @@ conn = sqlite3.connect("/data/bot.db", check_same_thread=False)
 cursor = conn.cursor()
 
 cursor.execute("""
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
     xptotal INTEGER DEFAULT 0,   -- all XP from any source
     earnedxp INTEGER DEFAULT 0,  -- only quest/story XP
