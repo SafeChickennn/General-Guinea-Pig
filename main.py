@@ -173,6 +173,15 @@ LEADERBOARD_COLORS = {
     "global": 0xFFFFFF
 }
 
+RANK_EMOJIS = {
+    "initiate": "🟢",
+    "explorer": "🔵",
+    "connector": "🟣",
+    "leader": ":red_circle:",
+    "master": "🟡",
+    "global": "🏆"
+}
+
 # ========================
 # QUEST POOLS
 # ========================
@@ -1202,7 +1211,12 @@ async def leaderboard(ctx, category: str):
 
     results = cursor.fetchall()
 
-    embed = discord.Embed(title=f"🏆 {rank_name} Leaderboard (7 Days)", color=0x00FFAA)
+    emoji = RANK_EMOJIS.get(category, "🏆")
+
+    embed = discord.Embed(
+        title=f"{emoji} {rank_name} Leaderboard (7 Days)",
+        color=LEADERBOARD_COLORS.get(category, 0xFFFFFF)
+    )
 
     for index, (user_id, weekly_xp) in enumerate(results[:10], start=1):
         member = ctx.guild.get_member(user_id)
