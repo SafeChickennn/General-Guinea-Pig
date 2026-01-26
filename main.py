@@ -1148,7 +1148,7 @@ async def progress(ctx, member: discord.Member = None):
 
         if tier_index < len(tiers):
             next_goal_xp = tiers[tier_index]
-            next_goal_label = f"{rank_name} — Tier {tier + 1}"
+            next_goal_label = f"{rank_name} — Tier {tier}"
             xp_to_next_goal = max(0, next_goal_xp - xp)
         else:
             next_goal_xp = None
