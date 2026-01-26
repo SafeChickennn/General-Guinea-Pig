@@ -1144,31 +1144,45 @@ async def on_member_join(member):
 async def progress(ctx, member: discord.Member = None):
     target = member or ctx.author
     user = get_user(target.id)
-    xp, rank_number, streak = user[1], user[2], user[3]
 
+    xp = user[1]
+    streak = user[3]
+
+    # ALWAYS derive rank & tier from XP
+    rank_number = get_rank_from_xp(xp)
     rank_name = RANKS[rank_number]
     tier = get_tier_from_xp(rank_number, xp) or 1
-    
+
     tiers = RANK_TIERS.get(rank_name, [])
 
+    # Determine next goal
     if tiers:
         tier_index = tier - 1
 
         if tier_index < len(tiers):
+            # Next tier in same rank
             next_goal_xp = tiers[tier_index]
             next_goal_label = f"{rank_name} — Tier {tier + 1}"
             xp_to_next_goal = max(0, next_goal_xp - xp)
         else:
-            next_goal_xp = None
+            # Last tier → next rank
+            next_rank = rank_number + 1
+            next_goal_xp = RANK_XP_THRESHOLDS[next_rank][0]
+            next_goal_label = f"{RANKS[next_rank]} — Tier 1"
+            xp_to_next_goal = max(0, next_goal_xp - xp)
     else:
-        next_goal_xp = None
+        # No tiers → next rank
+        next_rank = rank_number + 1
+        next_goal_xp = RANK_XP_THRESHOLDS[next_rank][0]
+        next_goal_label = f"{RANKS[next_rank]} — Tier 1"
+        xp_to_next_goal = max(0, next_goal_xp - xp)
 
     embed = discord.Embed(
         title=f"{target.display_name}'s Profile",
         description=f"**{rank_name}** Tier {tier}",
-         color=RANK_COLORS.get(rank_name, 0xFFFFFF)
+        color=RANK_COLORS.get(rank_name, 0xFFFFFF)
     )
-    
+
     embed.set_thumbnail(url=target.display_avatar.url)
     embed.add_field(name="🔥 Streak", value=f"{streak} day{'s' if streak != 1 else ''}", inline=True)
     embed.add_field(name="⭐ XP", value=f"{xp} XP", inline=True)
@@ -1291,8 +1305,12 @@ async def givexp(ctx, member: discord.Member, amount: int):
 
     if new_rank > old_rank:
         message_parts.append(f"🎉 **RANK UP!** You are now {RANKS[new_rank]}!")
-    elif new_tier > old_tier:
-        message_parts.append(f"✨ **TIER UP!** You are now {RANKS[new_rank]} — Tier {new_tier}!")
+    else:
+        new_tier = get_tier_from_xp(old_rank, new_xp)
+        if new_tier > old_tier:
+            message_parts.append(
+                f"✨ **TIER UP!** You are now {RANKS[old_rank]} — Tier {new_tier}!"
+            )
 
     await ctx.send("\n".join(message_parts))
 
