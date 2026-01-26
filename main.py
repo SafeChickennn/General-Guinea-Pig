@@ -1173,14 +1173,14 @@ async def profile(ctx, member: discord.Member = None):
         if tier_index < len(tiers):
             next_goal_xp = tiers[tier_index]
             next_goal_label = f"{rank_name} — Tier {tier + 1}"
-            xp_to_next_goal = max(0, next_goal_xp - xp)
+            xp_to_next_goal = max(0, next_goal_xp - xptotal)
         else:
             # Last tier reached → next rank
             next_rank_number = rank_number + 1
             if next_rank_number in RANKS:
                 next_goal_xp = RANK_XP_THRESHOLDS[next_rank_number][0]
                 next_goal_label = f"{RANKS[next_rank_number]} — Tier 1"
-                xp_to_next_goal = max(0, next_goal_xp - xp)
+                xp_to_next_goal = max(0, next_goal_xp - xptotal)
             else:
                 next_goal_label = "MAX RANK"
                 xp_to_next_goal = 0
@@ -1190,7 +1190,7 @@ async def profile(ctx, member: discord.Member = None):
         if next_rank_number in RANKS:
             next_goal_xp = RANK_XP_THRESHOLDS[next_rank_number][0]
             next_goal_label = f"{RANKS[next_rank_number]} — Tier 1"
-            xp_to_next_goal = max(0, next_goal_xp - xp)
+            xp_to_next_goal = max(0, next_goal_xp - xptotal)
         else:
             next_goal_label = "MAX RANK"
             xp_to_next_goal = 0
@@ -1203,7 +1203,7 @@ async def profile(ctx, member: discord.Member = None):
 
     embed.set_thumbnail(url=target.display_avatar.url)
     embed.add_field(name="🔥 Streak", value=f"{streak} day{'s' if streak != 1 else ''}", inline=True)
-    embed.add_field(name="⭐ XP", value=f"{xp} XP", inline=True)
+    embed.add_field(name="⭐ XP", value=f"{xptotal} XP", inline=True)
     embed.add_field(
         name="Next Goal",
         value=f"{next_goal_label} ({xp_to_next_goal} XP to go)",
