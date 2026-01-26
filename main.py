@@ -349,12 +349,14 @@ def get_rank_from_xp(xp):
 def get_tier_from_xp(rank_number, xp):
     rank_name = RANKS[rank_number]
     tiers = RANK_TIERS.get(rank_name, [])
+
     if not tiers:
         return None
 
-    for i, threshold in enumerate(tiers, start=1):
+    for i, threshold in enumerate(tiers):
         if xp < threshold:
-            return i
+            return i + 1
+
     return len(tiers)
 
 async def assign_rank_role(member, rank_number):
@@ -714,10 +716,16 @@ async def quest_command(ctx, quest_key):
     
     # Check for rank up
     new_xp = old_xp + xp
-    new_rank = get_rank_from_xp(new_xp)
     old_rank = user[2]
+    new_rank = get_rank_from_xp(new_xp)
+
     old_tier = get_tier_from_xp(old_rank, old_xp)
-    new_tier = get_tier_from_xp(new_rank, new_xp)
+
+    if new_rank == old_rank:
+        new_tier = get_tier_from_xp(old_rank, new_xp)
+    else:
+        new_tier = 1
+
 
     # Determine message
     message_parts = [f"✅ Quest completed!\nQuest: {quest_name}\nXP Gained: {xp}"]
@@ -1148,7 +1156,7 @@ async def progress(ctx, member: discord.Member = None):
 
         if tier_index < len(tiers):
             next_goal_xp = tiers[tier_index]
-            next_goal_label = f"{rank_name} — Tier {tier}"
+            next_goal_label = f"{rank_name} — Tier {tier + 1}"
             xp_to_next_goal = max(0, next_goal_xp - xp)
         else:
             next_goal_xp = None
