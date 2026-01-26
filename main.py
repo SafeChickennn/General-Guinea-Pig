@@ -7,6 +7,7 @@ import asyncio
 from datetime import datetime, timedelta
 import random
 from zoneinfo import ZoneInfo
+from datetime import timezone
 
 # ========================
 # DATABASE SETUP
@@ -327,7 +328,7 @@ def get_user(user_id):
 def log_xp(user_id, amount):
     cursor.execute(
         "INSERT INTO xp_log (user_id, xp, timestamp) VALUES (?, ?, ?)",
-        (user_id, amount, datetime.utcnow().isoformat())
+        (user_id, amount, datetime.now(timezone.utc).isoformat())
     )
     conn.commit()
 
@@ -1197,7 +1198,7 @@ async def leaderboard(ctx, category: str):
     rank_number = RANK_LOOKUP[category]
     rank_name = RANKS[rank_number]
 
-    seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
+    seven_days_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
 
     cursor.execute("""
         SELECT users.user_id, COALESCE(SUM(xp_log.xp), 0) as weekly_xp
