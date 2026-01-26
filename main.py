@@ -629,26 +629,35 @@ async def before_daily_reset():
     wait_seconds = (next_midnight - now).total_seconds()
     await asyncio.sleep(wait_seconds)
 
-@tasks.loop(time=[
-    time(hour=9, tzinfo=ZoneInfo("America/New_York")),
-    time(hour=13, tzinfo=ZoneInfo("America/New_York"))
-])
-async def quest_notifications():
-    guild = bot.get_guild(YOUR_GUILD_ID)
+# ========================
+# QUEST NOTIFICATIONS
+# ========================
 
-    for rank, channel_name in QUEST_CHANNELS.items():
+@tasks.loop(minutes=60)
+async def quest_notifications():
+    now = datetime.now(TZ)
+    current_hour = now.hour
+
+    # Only run at 9am or 1pm EST
+    if current_hour not in (9, 13):
+        return
+
+    guild = bot.guilds[0]  # assumes single-server bot
+
+    for rank_key, channel_name in QUEST_CHANNELS.items():
         channel = discord.utils.get(guild.text_channels, name=channel_name)
-        role = discord.utils.get(guild.roles, name=rank.capitalize())
+        role = discord.utils.get(guild.roles, name=rank_key.capitalize())
 
         if not channel or not role:
             continue
 
-        if datetime.now(ZoneInfo("America/New_York")).hour == 9:
-            text = f"Don’t forget to complete a {rank.capitalize()} quest!"
+        if current_hour == 9:
+            text = "Don’t forget to complete a quest today!"
         else:
-            text = f"Your streak! You still have time for a {rank.capitalize()} quest!"
+            text = "Your streak! You still have time to complete a quest!"
 
-        msg = await channel.send(role.mention + " " + text)
+        # 🔔 send ping, then delete message (notification remains)
+        msg = await channel.send(f"{role.mention} {text}")
         await msg.delete()
 
 # ========================
