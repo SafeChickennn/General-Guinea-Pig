@@ -93,12 +93,6 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 bot._ready_ran = False
 
-@bot.event
-async def on_ready():
-    if bot._ready_ran:
-        return
-    bot._ready_ran = True
-
 # ========================
 # TIMEZONE
 # ========================
@@ -353,18 +347,15 @@ def get_rank_from_xp(xp):
     return 5  # Maser if XP exceeds highest threshold
 
 def get_tier_from_xp(rank_number, xp):
-    """Return tier number (1-based) for a rank. Returns None if no tiers."""
     rank_name = RANKS[rank_number]
     tiers = RANK_TIERS.get(rank_name, [])
     if not tiers:
         return None
-    tier_number = 0
-    for threshold in tiers:
-        if xp >= threshold:
-            tier_number += 1
-        else:
-            break
-    return tier_number if tier_number > 0 else 1
+
+    for i, threshold in enumerate(tiers, start=1):
+        if xp < threshold:
+            return i
+    return len(tiers)
 
 async def assign_rank_role(member, rank_number):
     guild = member.guild
@@ -1148,38 +1139,33 @@ async def progress(ctx, member: discord.Member = None):
     xp, rank_number, streak = user[1], user[2], user[3]
 
     rank_name = RANKS[rank_number]
-    tier = get_tier_from_xp(rank_number, xp)
+    tier = get_tier_from_xp(rank_number, xp) or 1
     
-    # Determine next goal (next tier or next rank)
     tiers = RANK_TIERS.get(rank_name, [])
     next_goal_label = "Max Rank/Tier"
     xp_to_next_goal = 0
 
     if tiers and tier < len(tiers):
-        # Next tier in the same rank
-        next_goal_label = f"{rank_name} Tier {tier + 1}"
+        next_goal_label = f"{rank_name} — Tier {tier + 1}"
         next_goal_xp = tiers[tier]  # XP threshold for next tier
         xp_to_next_goal = max(0, next_goal_xp - xp)
     else:
-        # Either no tiers or last tier reached, move to next rank if exists
         if rank_number < max(RANKS.keys()):
             next_rank_number = rank_number + 1
             next_rank_name = RANKS[next_rank_number]
+            next_rank_min_xp = RANK_XP_THRESHOLDS[next_rank_number][0]
+            xp_to_next_goal = max(0, next_rank_min_xp - xp)
             next_goal_label = f"{next_rank_name} Tier 1"
-            next_goal_xp = RANK_XP_THRESHOLDS[next_rank_number][0]  # XP needed for next rank
-            xp_to_next_goal = max(0, next_goal_xp - xp)
 
     embed = discord.Embed(
         title=f"{target.display_name}'s Profile",
         description=f"**{rank_name}**",
-        color=rank_color
+         color=RANK_COLORS.get(rank_name, 0xFFFFFF)
     )
     
-    embed.set_thumbnail(url=target.avatar.url)
     embed.set_thumbnail(url=target.display_avatar.url)
     embed.add_field(name="🔥 Streak", value=f"{streak} day{'s' if streak != 1 else ''}", inline=True)
     embed.add_field(name="⭐ XP", value=f"{xp} XP", inline=True)
-
     embed.add_field(
         name="Next Goal",
         value=f"{next_goal_label} ({xp_to_next_goal} XP to go)",
