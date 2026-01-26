@@ -152,11 +152,11 @@ RANK_XP_THRESHOLDS = {
 
 # Tier thresholds within ranks
 RANK_TIERS = {
-    "Initiate": [],  # No tiers
-    "Explorer": [150, 300, 450],
-    "Connector": [650, 800, 1000, 1200, 1400],
-    "Leader": [1600, 1900, 2200, 2500, 2800],
-    "Master": [3200, 4200, 5200, 6200, 7200]
+    "Initiate": [],
+    "Explorer": [300, 450],
+    "Connector": [800, 1000, 1200, 1400],
+    "Leader": [1900, 2200, 2500, 2800],
+    "Master": [4200, 5200, 6200, 7200]
 }
 
 LEADERBOARD_COLORS = {
@@ -1156,7 +1156,7 @@ async def progress(ctx, member: discord.Member = None):
 
         if tier_index < len(tiers):
             next_goal_xp = tiers[tier_index]
-            next_goal_label = f"{rank_name} — Tier {tier + 1}"
+            next_goal_label = f"{rank_name} — Tier {tier}"
             xp_to_next_goal = max(0, next_goal_xp - xp)
         else:
             next_goal_xp = None
@@ -1165,7 +1165,7 @@ async def progress(ctx, member: discord.Member = None):
 
     embed = discord.Embed(
         title=f"{target.display_name}'s Profile",
-        description=f"**{rank_name}**",
+        description=f"**{rank_name}** Tier {tier}",
          color=RANK_COLORS.get(rank_name, 0xFFFFFF)
     )
     
