@@ -1145,71 +1145,47 @@ async def on_member_join(member):
 async def progress(ctx, member: discord.Member = None):
     target = member or ctx.author
     user = get_user(target.id)
-
-    xp = user[1]
-    rank_number = user[2]
-    streak = user[3]
+    xp, rank_number, streak = user[1], user[2], user[3]
 
     rank_name = RANKS[rank_number]
-    rank_color = RANK_COLORS.get(rank_name, 0xFFFFFF)
-
-    # Rank XP range
-    min_xp, max_xp = RANK_XP_THRESHOLDS[rank_number]
-    next_rank_name = RANKS.get(rank_number + 1)
-
-    # Progress calculation
-    progress_in_rank = xp - min_xp
-    rank_span = max_xp - min_xp if max_xp != float("inf") else progress_in_rank
-    progress_ratio = min(progress_in_rank / rank_span, 1.0) if rank_span > 0 else 1.0
-
-    # XP Bar (20 segments)
-    total_blocks = 20
-    filled_blocks = int(progress_ratio * total_blocks)
-    bar = "█" * filled_blocks + "░" * (total_blocks - filled_blocks)
-
-    # XP remaining
-    xp_remaining = max_xp - xp if next_rank_name else 0
+    tier = get_tier_from_xp(rank_number, xp)
+    
+    # Determine next tier or rank
+    tiers = RANK_TIERS.get(rank_name, [])
+    if tiers:
+        if tier < len(tiers):
+            next_tier_xp = tiers[tier]  # XP needed for next tier
+            next_tier_label = f"Tier {tier + 1}"
+        else:
+            # Already at max tier of this rank, show next rank
+            if rank_number < max(RANKS.keys()):
+                next_rank_name = RANKS[rank_number + 1]
+                next_tier_label = f"{next_rank_name} Tier 1"
+                next_tier_xp = RANK_XP_THRESHOLDS[rank_number + 1][0]
+            else:
+                next_tier_label = "Max Rank/Tier"
+                next_tier_xp = xp
+    else:
+        # No tiers in this rank, show next rank
+        if rank_number < max(RANKS.keys()):
+            next_rank_name = RANKS[rank_number + 1]
+            next_tier_label = f"{next_rank_name} Tier 1"
+            next_tier_xp = RANK_XP_THRESHOLDS[rank_number + 1][0]
+        else:
+            next_tier_label = "Max Rank/Tier"
+            next_tier_xp = xp
 
     embed = discord.Embed(
-        title=target.display_name,
-        description=f"**{rank_name}**",
-        color=rank_color
+        title=f"📊 {target.display_name}'s Progress",
+        color=RANK_COLORS.get(rank_name, 0xFFFFFF)
     )
-
-    embed.set_thumbnail(url=target.display_avatar.url)
-
-    embed.add_field(
-        name="🔥 Streak",
-        value=f"{streak} day{'s' if streak != 1 else ''}",
-        inline=True
-    )
-
-    embed.add_field(
-        name="⭐ XP",
-        value=f"{xp} XP",
-        inline=True
-    )
-
-    embed.add_field(
-        name="📊 Progress",
-        value=f"`{bar}`\n{xp} / {max_xp if max_xp != float('inf') else '∞'} XP",
-        inline=False
-    )
-
-    if next_rank_name:
-        embed.add_field(
-            name="➡️ Next Rank",
-            value=f"{next_rank_name}\n{xp_remaining} XP remaining",
-            inline=False
-        )
-    else:
-        embed.add_field(
-            name="🏆 Max Rank",
-            value="You’ve reached the highest rank!",
-            inline=False
-        )
-
-    embed.set_footer(text="Complete quests daily to build your streak and rank up")
+    
+    embed.set_thumbnail(url=target.avatar.url)
+    embed.add_field(name="Rank", value=rank_name, inline=True)
+    embed.add_field(name="Tier", value=tier or 1, inline=True)
+    embed.add_field(name="Streak", value=f"{streak} days", inline=True)
+    embed.add_field(name="XP", value=xp, inline=True)
+    embed.add_field(name="Next Goal", value=f"{next_tier_label} ({next_tier_xp} XP)", inline=True)
 
     await ctx.send(embed=embed)
 
