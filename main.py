@@ -116,7 +116,7 @@ def week_start_est():
 # CHANNEL PERMISSIONS
 # ========================
 
-ALLOWED_QUEST_CHANNELS = ["quests", "quest-log"]
+ALLOWED_QUEST_CHANNEL = ["quest-log"]
 
 # ========================
 # RANK DATA
@@ -162,6 +162,15 @@ RANK_TIERS = {
     "Connector": [650, 800, 1000, 1200, 1400],
     "Leader": [1600, 1900, 2200, 2500, 2800],
     "Master": [3200, 4200, 5200, 6200, 7200]
+}
+
+LEADERBOARD_COLORS = {
+    "initiate": 0x2ECC71,
+    "explorer": 0x3498DB,
+    "connector": 0x9B59B6,
+    "leader": 0xE91E63,
+    "master": 0xF1C40F,
+    "global": 0xFFFFFF
 }
 
 # ========================
@@ -535,7 +544,9 @@ async def post_daily_quests():
             accessible_quests = RANK_QUEST_ACCESS[rank_num]
 
             role = discord.utils.get(guild.roles, name=RANK_ROLE_NAMES[rank_name])
-            role_mention = role.mention if role else ""
+            role_mention = role.mention if role else rank_name
+
+            header_message = f"Here are your {role_mention} quests for today!"
 
             embed = discord.Embed(
                 title=f"📜 Daily Quests for {rank_name}",
@@ -578,7 +589,7 @@ async def post_daily_quests():
 
             try:
                 await channel.send(
-                    content=role_mention,
+                    content=header_message,
                     embed=embed
                 )
             except Exception as e:
@@ -617,6 +628,28 @@ async def before_daily_reset():
     next_midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     wait_seconds = (next_midnight - now).total_seconds()
     await asyncio.sleep(wait_seconds)
+
+@tasks.loop(time=[
+    time(hour=9, tzinfo=ZoneInfo("America/New_York")),
+    time(hour=13, tzinfo=ZoneInfo("America/New_York"))
+])
+async def quest_notifications():
+    guild = bot.get_guild(YOUR_GUILD_ID)
+
+    for rank, channel_name in QUEST_CHANNELS.items():
+        channel = discord.utils.get(guild.text_channels, name=channel_name)
+        role = discord.utils.get(guild.roles, name=rank.capitalize())
+
+        if not channel or not role:
+            continue
+
+        if datetime.now(ZoneInfo("America/New_York")).hour == 9:
+            text = f"Don’t forget to complete a {rank.capitalize()} quest!"
+        else:
+            text = f"Your streak! You still have time for a {rank.capitalize()} quest!"
+
+        msg = await channel.send(role.mention + " " + text)
+        await msg.delete()
 
 # ========================
 # QUEST COMMANDS
@@ -869,14 +902,38 @@ async def story(ctx, *, content: str):
 @bot.event
 async def on_reaction_add(reaction, user):
     """Award XP when someone reacts to a story embed."""
+
+    message = reaction.message
+
     if user.bot:
         return  # Ignore bot reactions
 
-    message = reaction.message
+    if message.author.id == user.id:
+        return
+
+    cursor.execute(
+        "SELECT COUNT(*) FROM story_reactions WHERE message_id = ?",
+        (message.id,)
+    )
+    if cursor.fetchone()[0] >= 3:
+        return
+
+    cursor.execute(
+        "SELECT COUNT(*) FROM story_reactions WHERE user_id = ?",
+        (user.id,)
+    )
+    if cursor.fetchone()[0] >= 3:
+        return
 
     # Only allow reactions in story channel
     if message.channel.name not in STORY_CHANNEL:
         return
+
+    cursor.execute(
+        "INSERT OR IGNORE INTO story_reactions (message_id, user_id) VALUES (?, ?)",
+        (message.id, user.id)
+    )
+    conn.commit()
 
     # Check if this message is a tracked story
     cursor.execute("SELECT author_id, xp_awarded FROM story_posts WHERE message_id = ?", (message.id,))
@@ -1023,6 +1080,10 @@ async def on_ready():
     if not daily_reset_task.is_running():
         daily_reset_task.start()
 
+    if not quest_notifications.is_running():
+        quest_notifications.start()
+
+
 
 @bot.event
 async def on_member_join(member):
@@ -1091,7 +1152,8 @@ async def leaderboard(ctx, category: str):
         cursor.execute("SELECT user_id, xp FROM users ORDER BY xp DESC")
         results = cursor.fetchall()
 
-        embed = discord.Embed(title="🏆 Global Leaderboard", color=0xFFD700)
+        embed = discord.Embed(title="🏆 Global Leaderboard", color=LEADERBOARD_COLORS.get(category, 0xFFFFFF)
+    )
 
         for index, (user_id, xp) in enumerate(results[:10], start=1):
             member = ctx.guild.get_member(user_id)
