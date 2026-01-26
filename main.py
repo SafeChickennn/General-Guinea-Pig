@@ -1165,7 +1165,7 @@ async def progress(ctx, member: discord.Member = None):
 
     embed = discord.Embed(
         title=f"{target.display_name}'s Profile",
-        description=f"**{rank_name}** Tier {tier}",
+        description=f"**{rank_name}** Tier {tier + 1}",
          color=RANK_COLORS.get(rank_name, 0xFFFFFF)
     )
     
