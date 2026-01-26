@@ -1292,18 +1292,20 @@ async def givexp(ctx, member: discord.Member, amount: int):
     user_data = cursor.fetchone()
     old_xp = user_data[0]
     old_rank = user_data[1]
-    old_tier = get_tier_from_xp(old_rank, old_xp)
+    old_tier = get_tier_from_xp(old_rank, old_xp) or 1
 
     # Add XP
     add_bonus_xp(member.id, amount)
 
-    # Get new XP, rank, and tier
+    # Get new XP
     cursor.execute("SELECT xp FROM users WHERE user_id = ?", (member.id,))
     new_xp = cursor.fetchone()[0]
+
+    # Compute correct rank & tier from XP
     new_rank = get_rank_from_xp(new_xp)
     new_tier = get_tier_from_xp(new_rank, new_xp) or 1
 
-    # Update rank role if rank changed
+    # Always update DB rank if it differs (even if no rank-up)
     if new_rank != old_rank:
         set_rank(member.id, new_rank)
         await assign_rank_role(member, new_rank)
@@ -1313,7 +1315,7 @@ async def givexp(ctx, member: discord.Member, amount: int):
 
     if new_rank > old_rank:
         message_parts.append(f"🎉 **RANK UP!** You are now {RANKS[new_rank]}!")
-    elif new_tier > old_tier:
+    elif new_rank == old_rank and new_tier > old_tier:
         message_parts.append(f"✨ **TIER UP!** You are now {RANKS[new_rank]} — Tier {new_tier}!")
 
     await ctx.send("\n".join(message_parts))
