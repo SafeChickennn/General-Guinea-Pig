@@ -17,9 +17,10 @@ conn = sqlite3.connect("/data/bot.db", check_same_thread=False)
 cursor = conn.cursor()
 
 cursor.execute("""
-CREATE TABLE IF NOT EXISTS users (
+CREATE TABLE users (
     user_id INTEGER PRIMARY KEY,
-    xp INTEGER DEFAULT 0,
+    xptotal INTEGER DEFAULT 0,   -- all XP from any source
+    earnedxp INTEGER DEFAULT 0,  -- only quest/story XP
     rank INTEGER DEFAULT 1,
     streak INTEGER DEFAULT 0,
     last_quest_date TEXT
@@ -311,7 +312,7 @@ def get_user(user_id):
 
     if not user:
         cursor.execute(
-            "INSERT INTO users (user_id, xp, rank, streak) VALUES (?, 0, 1, 0)",
+            "INSERT INTO users (user_id, xptotal, earnedxp, rank, streak) VALUES (?, 0, 0, 1, 0)",
             (user_id,)
         )
         conn.commit()
@@ -326,13 +327,21 @@ def log_xp(user_id, amount):
     )
     conn.commit()
 
+# Quest/story XP
 def add_xp(user_id, amount):
-    cursor.execute("UPDATE users SET xp = xp + ? WHERE user_id = ?", (amount, user_id))
+    cursor.execute(
+        "UPDATE users SET xptotal = xptotal + ?, earnedxp = earnedxp + ? WHERE user_id = ?",
+        (amount, amount, user_id)
+    )
     conn.commit()
-    log_xp(user_id, amount)
+    log_xp(user_id, amount)  # keeps leaderboard behavior
 
+# Admin XP (bonus)
 def add_bonus_xp(user_id, amount):
-    cursor.execute("UPDATE users SET xp = xp + ? WHERE user_id = ?", (amount, user_id))
+    cursor.execute(
+        "UPDATE users SET xptotal = xptotal + ? WHERE user_id = ?",
+        (amount, user_id)
+    )
     conn.commit()
 
 def set_rank(user_id, rank):
@@ -1145,13 +1154,13 @@ async def profile(ctx, member: discord.Member = None):
     target = member or ctx.author
     user = get_user(target.id)
 
-    xp = user[1]
+    xptotal = user[1]
     streak = user[3]
 
     # ALWAYS compute rank & tier from XP
-    rank_number = get_rank_from_xp(xp)
+    rank_number = get_rank_from_xp(xptotal)
     rank_name = RANKS[rank_number]
-    tier = get_tier_from_xp(rank_number, xp) or 1
+    tier = get_tier_from_xp(rank_number, xptotal)
 
     tiers = RANK_TIERS.get(rank_name, [])
 
@@ -1216,7 +1225,7 @@ async def leaderboard(ctx, category: str):
             get_user(member.id)
 
     if category == "global":
-        cursor.execute("SELECT user_id, xp FROM users ORDER BY xp DESC")
+        cursor.execute("SELECT user_id, xptotal FROM users ORDER BY xptotal DESC")
         results = cursor.fetchall()
 
         embed = discord.Embed(title="🏆 Global Leaderboard", color=LEADERBOARD_COLORS.get(category, 0xFFFFFF)
@@ -1258,6 +1267,7 @@ async def leaderboard(ctx, category: str):
         ORDER BY weekly_xp DESC
     """, (seven_days_ago, rank_number))
 
+
     results = cursor.fetchall()
 
     emoji = RANK_EMOJIS.get(category, "🏆")
@@ -1290,29 +1300,26 @@ async def givexp(ctx, member: discord.Member, amount: int):
     # Get current XP and tier
     cursor.execute("SELECT xp, rank FROM users WHERE user_id = ?", (member.id,))
     user_data = cursor.fetchone()
-    old_xp = user_data[0]
-    old_rank = user_data[1]
-    old_tier = get_tier_from_xp(old_rank, old_xp) or 1
+    old_xptotal = user[1]
+    old_rank = user[2]
+    old_tier = get_tier_from_xp(old_rank, old_xptotal) or 1
 
     # Add XP
     add_bonus_xp(member.id, amount)
 
-    # Get new XP
-    cursor.execute("SELECT xp FROM users WHERE user_id = ?", (member.id,))
-    new_xp = cursor.fetchone()[0]
+    # new values
+    cursor.execute("SELECT xptotal FROM users WHERE user_id = ?", (member.id,))
+    new_xptotal = cursor.fetchone()[0]
+    new_rank = get_rank_from_xp(new_xptotal)
+    new_tier = get_tier_from_xp(new_rank, new_xptotal) or 1
 
-    # Compute correct rank & tier from XP
-    new_rank = get_rank_from_xp(new_xp)
-    new_tier = get_tier_from_xp(new_rank, new_xp) or 1
-
-    # Always update DB rank if it differs (even if no rank-up)
+    # Update rank if it changed
     if new_rank != old_rank:
         set_rank(member.id, new_rank)
         await assign_rank_role(member, new_rank)
 
     # Build message
-    message_parts = [f"✅ {member.mention} received {amount} XP\nNew Total: {new_xp} XP"]
-
+    message_parts = [f"✅ {member.mention} received {amount} XP\nNew Total: {new_xptotal} XP"]
     if new_rank > old_rank:
         message_parts.append(f"🎉 **RANK UP!** You are now {RANKS[new_rank]}!")
     elif new_rank == old_rank and new_tier > old_tier:
@@ -1326,7 +1333,7 @@ async def resetxp(ctx, member: discord.Member):
     get_user(member.id)
 
     cursor.execute(
-        "UPDATE users SET xp = 0, rank = 1 WHERE user_id = ?",
+        "UPDATE users SET xptotal = 0, rank = 1 WHERE user_id = ?",
         (member.id,)
     )
     conn.commit()
