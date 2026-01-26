@@ -1138,21 +1138,80 @@ async def on_member_join(member):
     )
 
 # ========================
-# PROFILE
+# PROFILE WIDGET
 # ========================
 
 @bot.command()
 async def progress(ctx, member: discord.Member = None):
     target = member or ctx.author
     user = get_user(target.id)
-    xp, rank_number, streak = user[1], user[2], user[3]
 
-    await ctx.send(
-        f"📊 **{target.display_name}'s Stats**\n"
-        f"XP: {xp}\n"
-        f"Rank: {RANKS[rank_number]}\n"
-        f"Streak: {streak}"
+    xp = user[1]
+    rank_number = user[2]
+    streak = user[3]
+
+    rank_name = RANKS[rank_number]
+    rank_color = RANK_COLORS.get(rank_name, 0xFFFFFF)
+
+    # Rank XP range
+    min_xp, max_xp = RANK_XP_THRESHOLDS[rank_number]
+    next_rank_name = RANKS.get(rank_number + 1)
+
+    # Progress calculation
+    progress_in_rank = xp - min_xp
+    rank_span = max_xp - min_xp if max_xp != float("inf") else progress_in_rank
+    progress_ratio = min(progress_in_rank / rank_span, 1.0) if rank_span > 0 else 1.0
+
+    # XP Bar (20 segments)
+    total_blocks = 20
+    filled_blocks = int(progress_ratio * total_blocks)
+    bar = "█" * filled_blocks + "░" * (total_blocks - filled_blocks)
+
+    # XP remaining
+    xp_remaining = max_xp - xp if next_rank_name else 0
+
+    embed = discord.Embed(
+        title=target.display_name,
+        description=f"**{rank_name}**",
+        color=rank_color
     )
+
+    embed.set_thumbnail(url=target.display_avatar.url)
+
+    embed.add_field(
+        name="🔥 Streak",
+        value=f"{streak} day{'s' if streak != 1 else ''}",
+        inline=True
+    )
+
+    embed.add_field(
+        name="⭐ XP",
+        value=f"{xp} XP",
+        inline=True
+    )
+
+    embed.add_field(
+        name="📊 Progress",
+        value=f"`{bar}`\n{xp} / {max_xp if max_xp != float('inf') else '∞'} XP",
+        inline=False
+    )
+
+    if next_rank_name:
+        embed.add_field(
+            name="➡️ Next Rank",
+            value=f"{next_rank_name}\n{xp_remaining} XP remaining",
+            inline=False
+        )
+    else:
+        embed.add_field(
+            name="🏆 Max Rank",
+            value="You’ve reached the highest rank!",
+            inline=False
+        )
+
+    embed.set_footer(text="Complete quests daily to build your streak and rank up")
+
+    await ctx.send(embed=embed)
 
 # ========================
 # LEADERBOARDS
