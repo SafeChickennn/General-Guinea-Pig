@@ -1150,42 +1150,41 @@ async def progress(ctx, member: discord.Member = None):
     rank_name = RANKS[rank_number]
     tier = get_tier_from_xp(rank_number, xp)
     
-    # Determine next tier or rank
+    # Determine next goal (next tier or next rank)
     tiers = RANK_TIERS.get(rank_name, [])
-    if tiers:
-        if tier < len(tiers):
-            next_tier_xp = tiers[tier]  # XP needed for next tier
-            next_tier_label = f"Tier {tier + 1}"
-        else:
-            # Already at max tier of this rank, show next rank
-            if rank_number < max(RANKS.keys()):
-                next_rank_name = RANKS[rank_number + 1]
-                next_tier_label = f"{next_rank_name} Tier 1"
-                next_tier_xp = RANK_XP_THRESHOLDS[rank_number + 1][0]
-            else:
-                next_tier_label = "Max Rank/Tier"
-                next_tier_xp = xp
+    next_goal_label = "Max Rank/Tier"
+    xp_to_next_goal = 0
+
+    if tiers and tier < len(tiers):
+        # Next tier in the same rank
+        next_goal_label = f"{rank_name} Tier {tier + 1}"
+        next_goal_xp = tiers[tier]  # XP threshold for next tier
+        xp_to_next_goal = max(0, next_goal_xp - xp)
     else:
-        # No tiers in this rank, show next rank
+        # Either no tiers or last tier reached, move to next rank if exists
         if rank_number < max(RANKS.keys()):
-            next_rank_name = RANKS[rank_number + 1]
-            next_tier_label = f"{next_rank_name} Tier 1"
-            next_tier_xp = RANK_XP_THRESHOLDS[rank_number + 1][0]
-        else:
-            next_tier_label = "Max Rank/Tier"
-            next_tier_xp = xp
+            next_rank_number = rank_number + 1
+            next_rank_name = RANKS[next_rank_number]
+            next_goal_label = f"{next_rank_name} Tier 1"
+            next_goal_xp = RANK_XP_THRESHOLDS[next_rank_number][0]  # XP needed for next rank
+            xp_to_next_goal = max(0, next_goal_xp - xp)
 
     embed = discord.Embed(
-        title=f"📊 {target.display_name}'s Progress",
-        color=RANK_COLORS.get(rank_name, 0xFFFFFF)
+        title=f" {target.display_name}'s Profile
+        description=f"**{rank_name}**",
+        color=rank_color
     )
     
     embed.set_thumbnail(url=target.avatar.url)
-    embed.add_field(name="Rank", value=rank_name, inline=True)
-    embed.add_field(name="Tier", value=tier or 1, inline=True)
-    embed.add_field(name="Streak", value=f"{streak} days", inline=True)
-    embed.add_field(name="XP", value=xp, inline=True)
-    embed.add_field(name="Next Goal", value=f"{next_tier_label} ({next_tier_xp} XP)", inline=True)
+    embed.set_thumbnail(url=target.display_avatar.url)
+    embed.add_field(name="🔥 Streak", value=f"{streak} day{'s' if streak != 1 else ''}", inline=True)
+    embed.add_field(name="⭐ XP", value=f"{xp} XP", inline=True)
+
+    embed.add_field(
+        name="Next Goal",
+        value=f"{next_goal_label} ({xp_to_next_goal} XP to go)",
+        inline=False
+    )
 
     await ctx.send(embed=embed)
 
