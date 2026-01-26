@@ -1142,20 +1142,18 @@ async def progress(ctx, member: discord.Member = None):
     tier = get_tier_from_xp(rank_number, xp) or 1
     
     tiers = RANK_TIERS.get(rank_name, [])
-    next_goal_label = "Max Rank/Tier"
-    xp_to_next_goal = 0
 
-    if tiers and tier < len(tiers):
-        next_goal_label = f"{rank_name} — Tier {tier + 1}"
-        next_goal_xp = tiers[tier]  # XP threshold for next tier
-        xp_to_next_goal = max(0, next_goal_xp - xp)
+    if tiers:
+        tier_index = tier - 1
+
+        if tier_index < len(tiers):
+            next_goal_xp = tiers[tier_index]
+            next_goal_label = f"{rank_name} — Tier {tier + 1}"
+            xp_to_next_goal = max(0, next_goal_xp - xp)
+        else:
+            next_goal_xp = None
     else:
-        if rank_number < max(RANKS.keys()):
-            next_rank_number = rank_number + 1
-            next_rank_name = RANKS[next_rank_number]
-            next_rank_min_xp = RANK_XP_THRESHOLDS[next_rank_number][0]
-            xp_to_next_goal = max(0, next_rank_min_xp - xp)
-            next_goal_label = f"{next_rank_name} Tier 1"
+        next_goal_xp = None
 
     embed = discord.Embed(
         title=f"{target.display_name}'s Profile",
