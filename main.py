@@ -675,7 +675,7 @@ async def quest_notifications():
 
 async def quest_command(ctx, quest_key):
     # Check channel permissions
-    if ctx.channel.name not in ALLOWED_QUEST_CHANNELS:
+    if ctx.channel.name not in ALLOWED_QUEST_CHANNEL:
         valid_channel = False
         for channel_name in QUEST_CHANNELS.values():
             if ctx.channel.name == channel_name:
