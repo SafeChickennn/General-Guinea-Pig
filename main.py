@@ -1156,7 +1156,7 @@ async def progress(ctx, member: discord.Member = None):
 
         if tier_index < len(tiers):
             next_goal_xp = tiers[tier_index]
-            next_goal_label = f"{rank_name} — Tier {tier}"
+            next_goal_label = f"{rank_name} — Tier {tier + 1}"
             xp_to_next_goal = max(0, next_goal_xp - xp)
         else:
             next_goal_xp = None
@@ -1165,7 +1165,7 @@ async def progress(ctx, member: discord.Member = None):
 
     embed = discord.Embed(
         title=f"{target.display_name}'s Profile",
-        description=f"**{rank_name}** Tier {tier + 1}",
+        description=f"**{rank_name}** Tier {tier}",
          color=RANK_COLORS.get(rank_name, 0xFFFFFF)
     )
     
