@@ -351,10 +351,10 @@ def get_tier_from_xp(rank_number, xp):
     tiers = RANK_TIERS.get(rank_name, [])
 
     if not tiers:
-        return None
+        return 1
 
-    for i, threshold in enumerate(tiers):
-        if xp < threshold:
+    for i in range(len(tiers)):
+        if i == len(tiers) - 1 or xp < tiers[i + 1]:
             return i + 1
 
     return len(tiers)
@@ -1160,13 +1160,13 @@ async def profile(ctx, member: discord.Member = None):
     if tiers:
         tier_index = tier - 1
 
-        # Next tier within same rank
-        if tier_index < len(tiers):
-            next_goal_xp = tiers[tier_index]
+        # Next tier exists in same rank
+        if tier_index + 1 < len(tiers):
+            next_goal_xp = tiers[tier_index + 1]
             next_goal_label = f"{rank_name} — Tier {tier + 1}"
-            xp_to_next_goal = max(0, next_goal_xp - xp)
+            xp_to_next_goal = next_goal_xp - xp
 
-        # Tiers exhausted → next rank
+        # Move to next rank
         else:
             if rank_number < max(RANKS.keys()):
                 next_rank_number = rank_number + 1
@@ -1174,7 +1174,7 @@ async def profile(ctx, member: discord.Member = None):
                 next_rank_xp = RANK_XP_THRESHOLDS[next_rank_number][0]
 
                 next_goal_label = f"{next_rank_name} — Tier 1"
-                xp_to_next_goal = max(0, next_rank_xp - xp)
+                xp_to_next_goal = next_rank_xp - xp
 
     embed = discord.Embed(
         title=f"{target.display_name}'s Profile",
