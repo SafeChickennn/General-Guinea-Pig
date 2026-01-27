@@ -19,8 +19,7 @@ cursor = conn.cursor()
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
-    xptotal INTEGER DEFAULT 0,   -- all XP from any source
-    earnedxp INTEGER DEFAULT 0,  -- only quest/story XP
+    xp INTEGER DEFAULT 0,
     rank INTEGER DEFAULT 1,
     streak INTEGER DEFAULT 0,
     last_quest_date TEXT
@@ -94,6 +93,12 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 bot._ready_ran = False
 
+@bot.event
+async def on_ready():
+    if bot._ready_ran:
+        return
+    bot._ready_ran = True
+
 # ========================
 # TIMEZONE
 # ========================
@@ -153,11 +158,11 @@ RANK_XP_THRESHOLDS = {
 
 # Tier thresholds within ranks
 RANK_TIERS = {
-    "Initiate": [],
-    "Explorer": [300, 450],
-    "Connector": [800, 1000, 1200, 1400],
-    "Leader": [1900, 2200, 2500, 2800],
-    "Master": [4200, 5200, 6200, 7200]
+    "Initiate": [],  # No tiers
+    "Explorer": [150, 300, 450],
+    "Connector": [650, 800, 1000, 1200, 1400],
+    "Leader": [1600, 1900, 2200, 2500, 2800],
+    "Master": [3200, 4200, 5200, 6200, 7200]
 }
 
 LEADERBOARD_COLORS = {
@@ -312,7 +317,7 @@ def get_user(user_id):
 
     if not user:
         cursor.execute(
-            "INSERT INTO users (user_id, xptotal, earnedxp, rank, streak) VALUES (?, 0, 0, 1, 0)",
+            "INSERT INTO users (user_id, xp, rank, streak) VALUES (?, 0, 1, 0)",
             (user_id,)
         )
         conn.commit()
@@ -327,46 +332,39 @@ def log_xp(user_id, amount):
     )
     conn.commit()
 
-# Quest/story XP
 def add_xp(user_id, amount):
-    cursor.execute(
-        "UPDATE users SET xptotal = xptotal + ?, earnedxp = earnedxp + ? WHERE user_id = ?",
-        (amount, amount, user_id)
-    )
+    cursor.execute("UPDATE users SET xp = xp + ? WHERE user_id = ?", (amount, user_id))
     conn.commit()
-    log_xp(user_id, amount)  # keeps leaderboard behavior
+    log_xp(user_id, amount)
 
-# Admin XP (bonus)
 def add_bonus_xp(user_id, amount):
-    cursor.execute(
-        "UPDATE users SET xptotal = xptotal + ? WHERE user_id = ?",
-        (amount, user_id)
-    )
+    cursor.execute("UPDATE users SET xp = xp + ? WHERE user_id = ?", (amount, user_id))
     conn.commit()
 
 def set_rank(user_id, rank):
     cursor.execute("UPDATE users SET rank = ? WHERE user_id = ?", (rank, user_id))
     conn.commit()
 
-def get_rank_from_xp(xptotal):
+def get_rank_from_xp(xp):
     """Return rank number based on XP"""
     for rank, (min_xp, max_xp) in RANK_XP_THRESHOLDS.items():
         if min_xp <= xp < max_xp:
             return rank
     return 5  # Maser if XP exceeds highest threshold
 
-def get_tier_from_xp(rank_number, xptotal):
+def get_tier_from_xp(rank_number, xp):
+    """Return tier number (1-based) for a rank. Returns None if no tiers."""
     rank_name = RANKS[rank_number]
     tiers = RANK_TIERS.get(rank_name, [])
-
     if not tiers:
         return None
-
-    for i, threshold in enumerate(tiers):
-        if xp < threshold:
-            return i + 1
-
-    return len(tiers)
+    tier_number = 0
+    for threshold in tiers:
+        if xp >= threshold:
+            tier_number += 1
+        else:
+            break
+    return tier_number if tier_number > 0 else 1
 
 async def assign_rank_role(member, rank_number):
     guild = member.guild
@@ -717,23 +715,18 @@ async def quest_command(ctx, quest_key):
         return
 
     # Award XP
-    old_xptotal = user[1]
-    old_earnedxp = user[2]
-    old_rank = user[3]
-
+    old_xp = user[1]
     add_xp(ctx.author.id, xp)
-    new_xptotal = old_xptotal + xp
-    new_rank = get_rank_from_xp(new_xptotal)
-    old_tier = get_tier_from_xp(old_rank, old_xptotal)
-
     claim_quest(ctx.author.id, quest_key)
 
     update_streak(ctx.author.id)
     
-    if new_rank == old_rank:
-        new_tier = get_tier_from_xp(old_rank, new_xp)
-    else:
-        new_tier = 1
+    # Check for rank up
+    new_xp = old_xp + xp
+    new_rank = get_rank_from_xp(new_xp)
+    old_rank = user[2]
+    old_tier = get_tier_from_xp(old_rank, old_xp)
+    new_tier = get_tier_from_xp(new_rank, new_xp)
 
     # Determine message
     message_parts = [f"✅ Quest completed!\nQuest: {quest_name}\nXP Gained: {xp}"]
@@ -814,18 +807,18 @@ async def weekly_quest_command(ctx, rank_name):
     
     quest_name, xp = result
     
-    old_xptotal = user[1]
+    old_xp = user[1]
     add_xp(ctx.author.id, xp)
     claim_quest(ctx.author.id, quest_key)
     
     new_xp = old_xp + xp
     new_rank = get_rank_from_xp(new_xp)
     
-    new_xptotal = old_xptotal + xp
-    new_rank = get_rank_from_xp(new_xptotal)
-    old_rank = user[3]
-    old_tier = get_tier_from_xp(old_rank, old_xptotal) or 1
-    new_tier = get_tier_from_xp(new_rank, new_xptotal) or 1
+    new_xp = old_xp + xp
+    new_rank = get_rank_from_xp(new_xp)
+    old_rank = user[2]
+    old_tier = get_tier_from_xp(old_rank, old_xp)
+    new_tier = get_tier_from_xp(new_rank, new_xp)
 
     # Determine message
     message_parts = [f"✅ Weekly quest completed!\nQuest: {quest_name}\nXP Gained: {xp}"]
@@ -1145,71 +1138,21 @@ async def on_member_join(member):
     )
 
 # ========================
-# PROFILE WIDGET
+# PROFILE
 # ========================
 
 @bot.command()
-async def profile(ctx, member: discord.Member = None):
+async def progress(ctx, member: discord.Member = None):
     target = member or ctx.author
     user = get_user(target.id)
+    xp, rank_number, streak = user[1], user[2], user[3]
 
-    xptotal = user[1]
-    earnedxp = user[2]  
-    streak = user[4]
-
-    # ALWAYS compute rank & tier from XP
-    rank_number = get_rank_from_xp(xptotal)
-    rank_name = RANKS[rank_number]
-    tier = get_tier_from_xp(rank_number, xptotal)
-
-    tiers = RANK_TIERS.get(rank_name, [])
-
-    # Next goal logic
-    if tiers:
-        # Tier index starts at 0
-        tier_index = tier - 1
-
-        if tier_index < len(tiers):
-            next_goal_xp = tiers[tier_index]
-            next_goal_label = f"{rank_name} — Tier {tier + 1}"
-            xp_to_next_goal = max(0, next_goal_xp - xptotal)
-        else:
-            # Last tier reached → next rank
-            next_rank_number = rank_number + 1
-            if next_rank_number in RANKS:
-                next_goal_xp = RANK_XP_THRESHOLDS[next_rank_number][0]
-                next_goal_label = f"{RANKS[next_rank_number]} — Tier 1"
-                xp_to_next_goal = max(0, next_goal_xp - xptotal)
-            else:
-                next_goal_label = "MAX RANK"
-                xp_to_next_goal = 0
-    else:
-        # No tiers → next rank
-        next_rank_number = rank_number + 1
-        if next_rank_number in RANKS:
-            next_goal_xp = RANK_XP_THRESHOLDS[next_rank_number][0]
-            next_goal_label = f"{RANKS[next_rank_number]} — Tier 1"
-            xp_to_next_goal = max(0, next_goal_xp - xptotal)
-        else:
-            next_goal_label = "MAX RANK"
-            xp_to_next_goal = 0
-
-    embed = discord.Embed(
-        title=f"{target.display_name}'s Profile",
-        description=f"**{rank_name}** Tier {tier}",
-        color=RANK_COLORS.get(rank_name, 0xFFFFFF)
+    await ctx.send(
+        f"📊 **{target.display_name}'s Stats**\n"
+        f"XP: {xp}\n"
+        f"Rank: {RANKS[rank_number]}\n"
+        f"Streak: {streak}"
     )
-
-    embed.set_thumbnail(url=target.display_avatar.url)
-    embed.add_field(name="🔥 Streak", value=f"{streak} day{'s' if streak != 1 else ''}", inline=True)
-    embed.add_field(name="⭐ XP", value=f"{xptotal} XP", inline=True)
-    embed.add_field(
-        name="Next Goal",
-        value=f"{next_goal_label} ({xp_to_next_goal} XP to go)",
-        inline=False
-    )
-
-    await ctx.send(embed=embed)
 
 # ========================
 # LEADERBOARDS
@@ -1225,28 +1168,16 @@ async def leaderboard(ctx, category: str):
             get_user(member.id)
 
     if category == "global":
-        cursor.execute("""
-            SELECT user_id, xptotal
-            FROM users
-            ORDER BY xptotal DESC
-            LIMIT 10
-        """)
+        cursor.execute("SELECT user_id, xp FROM users ORDER BY xp DESC")
         results = cursor.fetchall()
 
-        embed = discord.Embed(
-            title="🏆 Global Leaderboard",
-            color=LEADERBOARD_COLORS.get(category, 0xFFFFFF)
-        )
+        embed = discord.Embed(title="🏆 Global Leaderboard", color=LEADERBOARD_COLORS.get(category, 0xFFFFFF)
+    )
 
-        for index, (user_id, xptotal) in enumerate(results, start=1):
+        for index, (user_id, xp) in enumerate(results[:10], start=1):
             member = ctx.guild.get_member(user_id)
             name = member.display_name if member else f"User {user_id}"
-
-            embed.add_field(
-                name=f"#{index} — {name}",
-                value=f"{xptotal} XP",
-                inline=False
-            )
+            embed.add_field(name=f"#{index} — {name}", value=f"{xp} XP", inline=False)
 
         await ctx.send(embed=embed)
         return
@@ -1265,29 +1196,32 @@ async def givexp(ctx, member: discord.Member, amount: int):
     get_user(member.id)
 
     # Get current XP and tier
-    cursor.execute("SELECT xptotal, rank FROM users WHERE user_id = ?", (member.id,))
-    old_xptotal, old_rank = cursor.fetchone()
-    old_tier = get_tier_from_xp(old_rank, old_xptotal) or 1
+    cursor.execute("SELECT xp, rank FROM users WHERE user_id = ?", (member.id,))
+    user_data = cursor.fetchone()
+    old_xp = user_data[0]
+    old_rank = user_data[1]
+    old_tier = get_tier_from_xp(old_rank, old_xp)
 
     # Add XP
     add_bonus_xp(member.id, amount)
 
-    # new values
-    cursor.execute("SELECT xptotal FROM users WHERE user_id = ?", (member.id,))
-    new_xptotal = cursor.fetchone()[0]
-    new_rank = get_rank_from_xp(new_xptotal)
-    new_tier = get_tier_from_xp(new_rank, new_xptotal) or 1
+    # Get new XP, rank, and tier
+    cursor.execute("SELECT xp FROM users WHERE user_id = ?", (member.id,))
+    new_xp = cursor.fetchone()[0]
+    new_rank = get_rank_from_xp(new_xp)
+    new_tier = get_tier_from_xp(new_rank, new_xp)
 
-    # Update rank if it changed
+    # Update rank role if rank changed
     if new_rank != old_rank:
         set_rank(member.id, new_rank)
         await assign_rank_role(member, new_rank)
 
     # Build message
-    message_parts = [f"✅ {member.mention} received {amount} XP\nNew Total: {new_xptotal} XP"]
+    message_parts = [f"✅ {member.mention} received {amount} XP\nNew Total: {new_xp} XP"]
+
     if new_rank > old_rank:
         message_parts.append(f"🎉 **RANK UP!** You are now {RANKS[new_rank]}!")
-    elif new_rank == old_rank and new_tier > old_tier:
+    elif new_tier > old_tier:
         message_parts.append(f"✨ **TIER UP!** You are now {RANKS[new_rank]} — Tier {new_tier}!")
 
     await ctx.send("\n".join(message_parts))
@@ -1298,7 +1232,7 @@ async def resetxp(ctx, member: discord.Member):
     get_user(member.id)
 
     cursor.execute(
-        "UPDATE users SET xptotal = 0, rank = 1 WHERE user_id = ?",
+        "UPDATE users SET xp = 0, rank = 1 WHERE user_id = ?",
         (member.id,)
     )
     conn.commit()
