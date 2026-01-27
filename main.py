@@ -726,10 +726,10 @@ async def quest_command(ctx, quest_key):
     old_rank = user[2]
     new_rank = get_rank_from_xp(new_xp)
 
-    old_tier = get_tier_from_xp(old_rank, old_xp)
+    old_tier = get_current_tier(old_rank, old_xp)
 
     if new_rank == old_rank:
-        new_tier = get_tier_from_xp(old_rank, new_xp)
+        new_tier = get_current_tier(old_rank, new_xp)
     else:
         new_tier = 1
 
@@ -823,9 +823,9 @@ async def weekly_quest_command(ctx, rank_name):
     new_xp = old_xp + xp
     new_rank = get_rank_from_xp(new_xp)
     old_rank = user[2]
-    old_tier = get_tier_from_xp(old_rank, old_xp)
+    old_tier = get_current_tier(old_rank, old_xp)
     if new_rank == old_rank:
-        new_tier = get_tier_from_xp(old_rank, new_xp)
+        new_tier = get_current_tier(old_rank, new_xp)
     else:
         new_tier = 1
 
@@ -1154,11 +1154,13 @@ def get_next_goal(rank_number, xp):
     rank_name = RANKS[rank_number]
     tiers = RANK_TIERS.get(rank_name, [])
 
-    for i, threshold in enumerate(tiers):
-        if xp < threshold:
-            return f"{rank_name} — Tier {i+1}", threshold - xp
+    current_tier = get_current_tier(rank_number, xp)
 
-    if rank_number < max(RANKS.keys()):
+    # Next tier index
+    if current_tier <= len(tiers):
+        next_threshold = tiers[current_tier - 1]  # because get_current_tier is 1-indexed
+        return f"{rank_name} — Tier {current_tier + 1}", next_threshold - xp
+    elif rank_number < max(RANKS.keys()):
         next_rank_number = rank_number + 1
         next_rank_name = RANKS[next_rank_number]
         next_rank_first_xp = RANK_XP_THRESHOLDS[next_rank_number][0]
