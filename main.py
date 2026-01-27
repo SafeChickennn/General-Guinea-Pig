@@ -1225,16 +1225,28 @@ async def leaderboard(ctx, category: str):
             get_user(member.id)
 
     if category == "global":
-        cursor.execute("SELECT user_id, xptotal FROM users ORDER BY xptotal DESC")
+        cursor.execute("""
+            SELECT user_id, xptotal
+            FROM users
+            ORDER BY xptotal DESC
+            LIMIT 10
+        """)
         results = cursor.fetchall()
 
-        embed = discord.Embed(title="🏆 Global Leaderboard", color=LEADERBOARD_COLORS.get(category, 0xFFFFFF)
-    )
+        embed = discord.Embed(
+            title="🏆 Global Leaderboard",
+            color=LEADERBOARD_COLORS.get(category, 0xFFFFFF)
+        )
 
-        for index, (user_id, xp) in enumerate(results[:10], start=1):
+        for index, (user_id, xptotal) in enumerate(results, start=1):
             member = ctx.guild.get_member(user_id)
             name = member.display_name if member else f"User {user_id}"
-            embed.add_field(name=f"#{index} — {name}", value=f"{xp} XP", inline=False)
+
+            embed.add_field(
+                name=f"#{index} — {name}",
+                value=f"{xptotal} XP",
+                inline=False
+            )
 
         await ctx.send(embed=embed)
         return
