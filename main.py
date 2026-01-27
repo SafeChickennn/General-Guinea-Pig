@@ -350,21 +350,19 @@ def get_current_tier(rank_number, xp):
     rank_name = RANKS[rank_number]
     tiers = RANK_TIERS.get(rank_name, [])
 
-    # Get the starting XP of this rank
+    # If no tiers, always Tier 1
+    if not tiers:
+        return 1
+
+    # Start at the rank's minimum XP
     rank_min_xp = RANK_XP_THRESHOLDS[rank_number][0]
 
-    if not tiers:
-        return 1  # No sub-tiers, default Tier 1
-
-    # Prepend 0 to represent Tier 1, then calculate relative to rank_min_xp
-    thresholds = [0] + tiers
-
-    # Work from highest to lowest tier to avoid off-by-one
-    for i in reversed(range(len(thresholds))):
-        if xp - rank_min_xp >= thresholds[i]:
-            return i + 1  # Tier number
-
-    return 1
+    # Check tiers from lowest to highest
+    for i, threshold in enumerate(tiers):
+        if xp < threshold:
+            return i + 1  # Tier i+1 is current
+    # If XP is higher than last tier threshold
+    return len(tiers) + 1
 
 async def assign_rank_role(member, rank_number):
     guild = member.guild
