@@ -1193,7 +1193,6 @@ async def profile(ctx, member: discord.Member = None):
     tier = get_current_tier(rank_number, xp)
     next_goal_label, xp_to_next_goal = get_next_goal(rank_number, xp)
 
-    # ===== Embed =====
     embed = discord.Embed(
         title=f"{target.display_name}'s Profile",
         description=f"**{rank_name} — Tier {tier}**",
