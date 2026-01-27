@@ -350,16 +350,19 @@ def get_current_tier(rank_number, xp):
     rank_name = RANKS[rank_number]
     tiers = RANK_TIERS.get(rank_name, [])
 
-    if not tiers:
-        return 1  # default to Tier 1 if no tiers
+    # Get the starting XP of this rank
+    rank_min_xp = RANK_XP_THRESHOLDS[rank_number][0]
 
-    # Add 0 at start to represent Tier 1 starting XP
+    if not tiers:
+        return 1  # No sub-tiers, default Tier 1
+
+    # Prepend 0 to represent Tier 1, then calculate relative to rank_min_xp
     thresholds = [0] + tiers
 
-    # Go through thresholds in reverse to get the correct tier
+    # Work from highest to lowest tier to avoid off-by-one
     for i in reversed(range(len(thresholds))):
-        if xp >= thresholds[i]:
-            return i + 1  # +1 because thresholds[0] = Tier 1
+        if xp - rank_min_xp >= thresholds[i]:
+            return i + 1  # Tier number
 
     return 1
 
