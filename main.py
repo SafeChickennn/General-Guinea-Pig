@@ -1148,47 +1148,55 @@ async def profile(ctx, member: discord.Member = None):
 
     rank_name = RANKS[rank_number]
     tier = get_tier_from_xp(rank_number, xp) or 1
-    
-tiers = RANK_TIERS.get(rank_name, [])
 
-next_goal_label = "Max Rank"
-xp_to_next_goal = 0
+    tiers = RANK_TIERS.get(rank_name, [])
 
-if tiers:
-    tier_index = tier - 1
+    next_goal_label = "Max Rank"
+    xp_to_next_goal = 0
 
-    # Next tier within same rank
-    if tier_index < len(tiers):
-        next_goal_xp = tiers[tier_index]
-        next_goal_label = f"{rank_name} — Tier {tier + 1}"
-        xp_to_next_goal = max(0, next_goal_xp - xp)
+    if tiers:
+        tier_index = tier - 1
 
-    # Tiers exhausted → next rank
-    else:
-        if rank_number < max(RANKS.keys()):
-            next_rank_number = rank_number + 1
-            next_rank_name = RANKS[next_rank_number]
-            next_rank_xp = RANK_XP_THRESHOLDS[next_rank_number][0]
+        # Next tier within same rank
+        if tier_index < len(tiers):
+            next_goal_xp = tiers[tier_index]
+            next_goal_label = f"{rank_name} — Tier {tier + 1}"
+            xp_to_next_goal = max(0, next_goal_xp - xp)
 
-            next_goal_label = f"{next_rank_name} — Tier 1"
-            xp_to_next_goal = max(0, next_rank_xp - xp)
+        # Tiers exhausted → next rank
+        else:
+            if rank_number < max(RANKS.keys()):
+                next_rank_number = rank_number + 1
+                next_rank_name = RANKS[next_rank_number]
+                next_rank_xp = RANK_XP_THRESHOLDS[next_rank_number][0]
+
+                next_goal_label = f"{next_rank_name} — Tier 1"
+                xp_to_next_goal = max(0, next_rank_xp - xp)
 
     embed = discord.Embed(
         title=f"{target.display_name}'s Profile",
         description=f"**{rank_name}** Tier {tier}",
-         color=RANK_COLORS.get(rank_name, 0xFFFFFF)
+        color=RANK_COLORS.get(rank_name, 0xFFFFFF)
     )
-    
+
     embed.set_thumbnail(url=target.display_avatar.url)
-    embed.add_field(name="🔥 Streak", value=f"{streak} day{'s' if streak != 1 else ''}", inline=True)
-    embed.add_field(name="⭐ XP", value=f"{xp} XP", inline=True)
+    embed.add_field(
+        name="🔥 Streak",
+        value=f"{streak} day{'s' if streak != 1 else ''}",
+        inline=True
+    )
+    embed.add_field(
+        name="⭐ XP",
+        value=f"{xp} XP",
+        inline=True
+    )
     embed.add_field(
         name="Next Goal",
         value=f"{next_goal_label} ({xp_to_next_goal} XP to go)",
-        inline=False,
+        inline=False
+    )
 
     await ctx.send(embed=embed)
-    )
 
 # ========================
 # LEADERBOARDS
