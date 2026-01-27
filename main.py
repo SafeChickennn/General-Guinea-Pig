@@ -93,12 +93,6 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 bot._ready_ran = False
 
-@bot.event
-async def on_ready():
-    if bot._ready_ran:
-        return
-    bot._ready_ran = True
-
 # ========================
 # TIMEZONE
 # ========================
@@ -158,11 +152,11 @@ RANK_XP_THRESHOLDS = {
 
 # Tier thresholds within ranks
 RANK_TIERS = {
-    "Initiate": [],  # No tiers
-    "Explorer": [150, 300, 450],
-    "Connector": [650, 800, 1000, 1200, 1400],
-    "Leader": [1600, 1900, 2200, 2500, 2800],
-    "Master": [3200, 4200, 5200, 6200, 7200]
+    "Initiate": [],
+    "Explorer": [300, 450],
+    "Connector": [800, 1000, 1200, 1400],
+    "Leader": [1900, 2200, 2500, 2800],
+    "Master": [4200, 5200, 6200, 7200]
 }
 
 LEADERBOARD_COLORS = {
@@ -353,18 +347,17 @@ def get_rank_from_xp(xp):
     return 5  # Maser if XP exceeds highest threshold
 
 def get_tier_from_xp(rank_number, xp):
-    """Return tier number (1-based) for a rank. Returns None if no tiers."""
     rank_name = RANKS[rank_number]
     tiers = RANK_TIERS.get(rank_name, [])
+
     if not tiers:
         return None
-    tier_number = 0
-    for threshold in tiers:
-        if xp >= threshold:
-            tier_number += 1
-        else:
-            break
-    return tier_number if tier_number > 0 else 1
+
+    for i, threshold in enumerate(tiers):
+        if xp < threshold:
+            return i + 1
+
+    return len(tiers)
 
 async def assign_rank_role(member, rank_number):
     guild = member.guild
@@ -723,10 +716,16 @@ async def quest_command(ctx, quest_key):
     
     # Check for rank up
     new_xp = old_xp + xp
-    new_rank = get_rank_from_xp(new_xp)
     old_rank = user[2]
+    new_rank = get_rank_from_xp(new_xp)
+
     old_tier = get_tier_from_xp(old_rank, old_xp)
-    new_tier = get_tier_from_xp(new_rank, new_xp)
+
+    if new_rank == old_rank:
+        new_tier = get_tier_from_xp(old_rank, new_xp)
+    else:
+        new_tier = 1
+
 
     # Determine message
     message_parts = [f"✅ Quest completed!\nQuest: {quest_name}\nXP Gained: {xp}"]
@@ -1138,7 +1137,7 @@ async def on_member_join(member):
     )
 
 # ========================
-# PROFILE
+# PROFILE WIDGET
 # ========================
 
 @bot.command()
@@ -1147,12 +1146,39 @@ async def progress(ctx, member: discord.Member = None):
     user = get_user(target.id)
     xp, rank_number, streak = user[1], user[2], user[3]
 
-    await ctx.send(
-        f"📊 **{target.display_name}'s Stats**\n"
-        f"XP: {xp}\n"
-        f"Rank: {RANKS[rank_number]}\n"
-        f"Streak: {streak}"
+    rank_name = RANKS[rank_number]
+    tier = get_tier_from_xp(rank_number, xp) or 1
+    
+    tiers = RANK_TIERS.get(rank_name, [])
+
+    if tiers:
+        tier_index = tier - 1
+
+        if tier_index < len(tiers):
+            next_goal_xp = tiers[tier_index]
+            next_goal_label = f"{rank_name} — Tier {tier + 1}"
+            xp_to_next_goal = max(0, next_goal_xp - xp)
+        else:
+            next_goal_xp = None
+    else:
+        next_goal_xp = None
+
+    embed = discord.Embed(
+        title=f"{target.display_name}'s Profile",
+        description=f"**{rank_name}** Tier {tier}",
+         color=RANK_COLORS.get(rank_name, 0xFFFFFF)
     )
+    
+    embed.set_thumbnail(url=target.display_avatar.url)
+    embed.add_field(name="🔥 Streak", value=f"{streak} day{'s' if streak != 1 else ''}", inline=True)
+    embed.add_field(name="⭐ XP", value=f"{xp} XP", inline=True)
+    embed.add_field(
+        name="Next Goal",
+        value=f"{next_goal_label} ({xp_to_next_goal} XP to go)",
+        inline=False
+    )
+
+    await ctx.send(embed=embed)
 
 # ========================
 # LEADERBOARDS
