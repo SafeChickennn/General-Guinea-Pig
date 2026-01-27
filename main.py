@@ -348,14 +348,14 @@ def set_rank(user_id, rank):
     cursor.execute("UPDATE users SET rank = ? WHERE user_id = ?", (rank, user_id))
     conn.commit()
 
-def get_rank_from_xp(xp):
+def get_rank_from_xp(xptotal):
     """Return rank number based on XP"""
     for rank, (min_xp, max_xp) in RANK_XP_THRESHOLDS.items():
         if min_xp <= xp < max_xp:
             return rank
     return 5  # Maser if XP exceeds highest threshold
 
-def get_tier_from_xp(rank_number, xp):
+def get_tier_from_xp(rank_number, xptotal):
     rank_name = RANKS[rank_number]
     tiers = RANK_TIERS.get(rank_name, [])
 
@@ -717,24 +717,23 @@ async def quest_command(ctx, quest_key):
         return
 
     # Award XP
-    old_xp = user[1]
+    old_xptotal = user[1]
+    old_earnedxp = user[2]
+    old_rank = user[3]
+
     add_xp(ctx.author.id, xp)
+    new_xptotal = old_xptotal + xp
+    new_rank = get_rank_from_xp(new_xptotal)
+    old_tier = get_tier_from_xp(old_rank, old_xptotal)
+
     claim_quest(ctx.author.id, quest_key)
 
     update_streak(ctx.author.id)
     
-    # Check for rank up
-    new_xp = old_xp + xp
-    old_rank = user[2]
-    new_rank = get_rank_from_xp(new_xp)
-
-    old_tier = get_tier_from_xp(old_rank, old_xp)
-
     if new_rank == old_rank:
         new_tier = get_tier_from_xp(old_rank, new_xp)
     else:
         new_tier = 1
-
 
     # Determine message
     message_parts = [f"✅ Quest completed!\nQuest: {quest_name}\nXP Gained: {xp}"]
@@ -815,18 +814,18 @@ async def weekly_quest_command(ctx, rank_name):
     
     quest_name, xp = result
     
-    old_xp = user[1]
+    old_xptotal = user[1]
     add_xp(ctx.author.id, xp)
     claim_quest(ctx.author.id, quest_key)
     
     new_xp = old_xp + xp
     new_rank = get_rank_from_xp(new_xp)
     
-    new_xp = old_xp + xp
-    new_rank = get_rank_from_xp(new_xp)
-    old_rank = user[2]
-    old_tier = get_tier_from_xp(old_rank, old_xp)
-    new_tier = get_tier_from_xp(new_rank, new_xp)
+    new_xptotal = old_xptotal + xp
+    new_rank = get_rank_from_xp(new_xptotal)
+    old_rank = user[3]
+    old_tier = get_tier_from_xp(old_rank, old_xptotal) or 1
+    new_tier = get_tier_from_xp(new_rank, new_xptotal) or 1
 
     # Determine message
     message_parts = [f"✅ Weekly quest completed!\nQuest: {quest_name}\nXP Gained: {xp}"]
@@ -1240,51 +1239,6 @@ async def leaderboard(ctx, category: str):
         await ctx.send(embed=embed)
         return
 
-    # Map rank name to number
-    RANK_LOOKUP = {
-        "initiate": 1,
-        "explorer": 2,
-        "connector": 3,
-        "leader": 4,
-        "master": 5
-    }
-
-    if category not in RANK_LOOKUP:
-        await ctx.send("❌ Invalid leaderboard category.")
-        return
-
-    rank_number = RANK_LOOKUP[category]
-    rank_name = RANKS[rank_number]
-
-    seven_days_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
-
-    cursor.execute("""
-        SELECT users.user_id, COALESCE(SUM(xp_log.xp), 0) as weekly_xp
-        FROM users
-        LEFT JOIN xp_log ON users.user_id = xp_log.user_id
-            AND xp_log.timestamp >= ?
-        WHERE users.rank = ?
-        GROUP BY users.user_id
-        ORDER BY weekly_xp DESC
-    """, (seven_days_ago, rank_number))
-
-
-    results = cursor.fetchall()
-
-    emoji = RANK_EMOJIS.get(category, "🏆")
-
-    embed = discord.Embed(
-        title=f"{emoji} {rank_name} Leaderboard (7 Days)",
-        color=LEADERBOARD_COLORS.get(category, 0xFFFFFF)
-    )
-
-    for index, (user_id, weekly_xp) in enumerate(results[:10], start=1):
-        member = ctx.guild.get_member(user_id)
-        name = member.display_name if member else f"User {user_id}"
-        embed.add_field(name=f"#{index} — {name}", value=f"{weekly_xp} XP", inline=False)
-
-    await ctx.send(embed=embed)
-
 # ========================
 # ADMIN COMMAND
 # ========================
@@ -1299,10 +1253,8 @@ async def givexp(ctx, member: discord.Member, amount: int):
     get_user(member.id)
 
     # Get current XP and tier
-    cursor.execute("SELECT xp, rank FROM users WHERE user_id = ?", (member.id,))
-    user_data = cursor.fetchone()
-    old_xptotal = user[1]
-    old_rank = user[2]
+    cursor.execute("SELECT xptotal, rank FROM users WHERE user_id = ?", (member.id,))
+    old_xptotal, old_rank = cursor.fetchone()
     old_tier = get_tier_from_xp(old_rank, old_xptotal) or 1
 
     # Add XP
