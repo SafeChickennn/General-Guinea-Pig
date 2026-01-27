@@ -1178,7 +1178,7 @@ async def profile(ctx, member: discord.Member = None):
 
     embed = discord.Embed(
         title=f"{target.display_name}'s Profile",
-        description=f"**{rank_name}** Tier {tier}",
+        current_tier_label=f"**{rank_name}** Tier {tier}",
         color=RANK_COLORS.get(rank_name, 0xFFFFFF)
     )
 
