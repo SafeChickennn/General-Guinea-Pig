@@ -1141,7 +1141,7 @@ async def on_member_join(member):
 # ========================
 
 @bot.command()
-async def progress(ctx, member: discord.Member = None):
+async def profile(ctx, member: discord.Member = None):
     target = member or ctx.author
     user = get_user(target.id)
     xp, rank_number, streak = user[1], user[2], user[3]
@@ -1149,19 +1149,29 @@ async def progress(ctx, member: discord.Member = None):
     rank_name = RANKS[rank_number]
     tier = get_tier_from_xp(rank_number, xp) or 1
     
-    tiers = RANK_TIERS.get(rank_name, [])
+tiers = RANK_TIERS.get(rank_name, [])
 
-    if tiers:
-        tier_index = tier - 1
+next_goal_label = "Max Rank"
+xp_to_next_goal = 0
 
-        if tier_index < len(tiers):
-            next_goal_xp = tiers[tier_index]
-            next_goal_label = f"{rank_name} — Tier {tier + 1}"
-            xp_to_next_goal = max(0, next_goal_xp - xp)
-        else:
-            next_goal_xp = None
+if tiers:
+    tier_index = tier - 1
+
+    # Next tier within same rank
+    if tier_index < len(tiers):
+        next_goal_xp = tiers[tier_index]
+        next_goal_label = f"{rank_name} — Tier {tier + 1}"
+        xp_to_next_goal = max(0, next_goal_xp - xp)
+
+    # Tiers exhausted → next rank
     else:
-        next_goal_xp = None
+        if rank_number < max(RANKS.keys()):
+            next_rank_number = rank_number + 1
+            next_rank_name = RANKS[next_rank_number]
+            next_rank_xp = RANK_XP_THRESHOLDS[next_rank_number][0]
+
+            next_goal_label = f"{next_rank_name} — Tier 1"
+            xp_to_next_goal = max(0, next_rank_xp - xp)
 
     embed = discord.Embed(
         title=f"{target.display_name}'s Profile",
