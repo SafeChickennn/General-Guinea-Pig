@@ -346,18 +346,21 @@ def get_rank_from_xp(xp):
             return rank
     return 5  # Maser if XP exceeds highest threshold
 
-def get_tier_from_xp(rank_number, xp):
+def get_current_tier(rank_number, xp):
     rank_name = RANKS[rank_number]
     tiers = RANK_TIERS.get(rank_name, [])
 
     if not tiers:
-        return 1
+        return 1  # default to Tier 1 if no tiers
 
-    for i in range(len(tiers)):
-        if i == len(tiers) - 1 or xp < tiers[i + 1]:
+    # Include a 0 at the start so Tier 1 starts at first threshold
+    thresholds = [0] + tiers
+    for i in range(len(thresholds)-1):
+        if thresholds[i] <= xp < thresholds[i+1]:
             return i + 1
 
-    return len(tiers)
+    # If XP exceeds last tier threshold
+    return len(thresholds) - 1
 
 async def assign_rank_role(member, rank_number):
     guild = member.guild
@@ -1140,6 +1143,41 @@ async def on_member_join(member):
     )
 
 # ========================
+# HELPER FUNCTIONS
+# ========================
+
+def get_current_tier(rank_number, xp):
+    rank_name = RANKS[rank_number]
+    tiers = RANK_TIERS.get(rank_name, [])
+
+    if not tiers:
+        return 1
+
+    thresholds = [0] + tiers
+    for i in range(len(thresholds)-1):
+        if thresholds[i] <= xp < thresholds[i+1]:
+            return i + 1
+
+    return len(thresholds) - 1
+
+
+def get_next_goal(rank_number, xp):
+    rank_name = RANKS[rank_number]
+    tiers = RANK_TIERS.get(rank_name, [])
+
+    for i, threshold in enumerate(tiers):
+        if xp < threshold:
+            return f"{rank_name} — Tier {i+1}", threshold - xp
+
+    if rank_number < max(RANKS.keys()):
+        next_rank_number = rank_number + 1
+        next_rank_name = RANKS[next_rank_number]
+        next_rank_first_xp = RANK_XP_THRESHOLDS[next_rank_number][0]
+        return f"{next_rank_name} — Tier 1", next_rank_first_xp - xp
+
+    return "Max Rank", 0
+
+# ========================
 # PROFILE WIDGET
 # ========================
 
@@ -1150,39 +1188,20 @@ async def profile(ctx, member: discord.Member = None):
     xp, rank_number, streak = user[1], user[2], user[3]
 
     rank_name = RANKS[rank_number]
-    tier = get_tier_from_xp(rank_number, xp) or 1
 
-    tiers = RANK_TIERS.get(rank_name, [])
+    # ===== Current tier and next goal =====
+    tier = get_current_tier(rank_number, xp)
+    next_goal_label, xp_to_next_goal = get_next_goal(rank_number, xp)
 
-    next_goal_label = "Max Rank"
-    xp_to_next_goal = 0
-
-    if tiers:
-        tier_index = tier - 1
-
-        # Next tier exists in same rank
-        if tier_index + 1 < len(tiers):
-            next_goal_xp = tiers[tier_index + 1]
-            next_goal_label = f"{rank_name} — Tier {tier + 1}"
-            xp_to_next_goal = next_goal_xp - xp
-
-        # Move to next rank
-        else:
-            if rank_number < max(RANKS.keys()):
-                next_rank_number = rank_number + 1
-                next_rank_name = RANKS[next_rank_number]
-                next_rank_xp = RANK_XP_THRESHOLDS[next_rank_number][0]
-
-                next_goal_label = f"{next_rank_name} — Tier 1"
-                xp_to_next_goal = next_rank_xp - xp
-
+    # ===== Embed =====
     embed = discord.Embed(
         title=f"{target.display_name}'s Profile",
-        description=f"**{rank_name}** - Tier {tier}",
+        description=f"**{rank_name} — Tier {tier}**",
         color=RANK_COLORS.get(rank_name, 0xFFFFFF)
     )
 
     embed.set_thumbnail(url=target.display_avatar.url)
+
     embed.add_field(
         name="🔥 Streak",
         value=f"{streak} day{'s' if streak != 1 else ''}",
