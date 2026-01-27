@@ -353,14 +353,15 @@ def get_current_tier(rank_number, xp):
     if not tiers:
         return 1  # default to Tier 1 if no tiers
 
-    # Include a 0 at the start so Tier 1 starts at first threshold
+    # Add 0 at start to represent Tier 1 starting XP
     thresholds = [0] + tiers
-    for i in range(len(thresholds)-1):
-        if thresholds[i] <= xp < thresholds[i+1]:
-            return i + 1
 
-    # If XP exceeds last tier threshold
-    return len(thresholds) - 1
+    # Go through thresholds in reverse to get the correct tier
+    for i in reversed(range(len(thresholds))):
+        if xp >= thresholds[i]:
+            return i + 1  # +1 because thresholds[0] = Tier 1
+
+    return 1
 
 async def assign_rank_role(member, rank_number):
     guild = member.guild
@@ -1195,7 +1196,7 @@ async def profile(ctx, member: discord.Member = None):
 
     embed = discord.Embed(
         title=f"{target.display_name}'s Profile",
-        description=f"**{rank_name} — Tier {tier}**",
+        description=f"**{rank_name}** — Tier {tier}",
         color=RANK_COLORS.get(rank_name, 0xFFFFFF)
     )
 
