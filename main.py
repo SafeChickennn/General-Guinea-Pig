@@ -153,10 +153,10 @@ RANK_XP_THRESHOLDS = {
 # Tier thresholds within ranks
 RANK_TIERS = {
     "Initiate": [],
-    "Explorer": [150, 300, 450],
-    "Connector": [600, 800, 1000, 1200, 1400],
-    "Leader": [1600, 1900, 2200, 2500, 2800],
-    "Master": [3200, 4200, 5200, 6200, 7200]
+    "Explorer": [300, 450],
+    "Connector": [800, 1000, 1200, 1400],
+    "Leader": [1900, 2200, 2500, 2800],
+    "Master": [4200, 5200, 6200, 7200]
 }
 
 LEADERBOARD_COLORS = {
@@ -817,7 +817,10 @@ async def weekly_quest_command(ctx, rank_name):
     new_rank = get_rank_from_xp(new_xp)
     old_rank = user[2]
     old_tier = get_tier_from_xp(old_rank, old_xp)
-    new_tier = get_tier_from_xp(new_rank, new_xp)
+    if new_rank == old_rank:
+        new_tier = get_tier_from_xp(old_rank, new_xp)
+    else:
+        new_tier = 1
 
     # Determine message
     message_parts = [f"✅ Weekly quest completed!\nQuest: {quest_name}\nXP Gained: {xp}"]
