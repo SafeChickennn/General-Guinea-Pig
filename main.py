@@ -347,21 +347,23 @@ def get_rank_from_xp(xp):
     return 5  # Maser if XP exceeds highest threshold
 
 def get_current_tier(rank_number, xp):
+    """
+    Returns the current tier number (1-indexed) for a given rank and absolute XP.
+    Uses absolute XP thresholds in RANK_TIERS.
+    """
     rank_name = RANKS[rank_number]
     tiers = RANK_TIERS.get(rank_name, [])
 
-    # If no tiers, always Tier 1
+    # If there are no tiers, always Tier 1
     if not tiers:
         return 1
 
-    # Start at the rank's minimum XP
-    rank_min_xp = RANK_XP_THRESHOLDS[rank_number][0]
-
-    # Check tiers from lowest to highest
+    # Go through each tier threshold
     for i, threshold in enumerate(tiers):
         if xp < threshold:
-            return i + 1  # Tier i+1 is current
-    # If XP is higher than last tier threshold
+            return i + 1  # Current tier is before this threshold
+
+    # If XP exceeds all thresholds, return the last tier +1
     return len(tiers) + 1
 
 async def assign_rank_role(member, rank_number):
@@ -1148,21 +1150,6 @@ async def on_member_join(member):
 # HELPER FUNCTIONS
 # ========================
 
-def get_current_tier(rank_number, xp):
-    rank_name = RANKS[rank_number]
-    tiers = RANK_TIERS.get(rank_name, [])
-
-    if not tiers:
-        return 1
-
-    thresholds = [0] + tiers
-    for i in range(len(thresholds)-1):
-        if thresholds[i] <= xp < thresholds[i+1]:
-            return i + 1
-
-    return len(thresholds) - 1
-
-
 def get_next_goal(rank_number, xp):
     rank_name = RANKS[rank_number]
     tiers = RANK_TIERS.get(rank_name, [])
@@ -1200,6 +1187,7 @@ async def profile(ctx, member: discord.Member = None):
         description=f"**{rank_name}** — Tier {tier}",
         color=RANK_COLORS.get(rank_name, 0xFFFFFF)
     )
+
 
     embed.set_thumbnail(url=target.display_avatar.url)
 
