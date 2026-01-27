@@ -1185,7 +1185,7 @@ if tiers:
     embed.add_field(
         name="Next Goal",
         value=f"{next_goal_label} ({xp_to_next_goal} XP to go)",
-        inline=False
+        inline=False,
 
     await ctx.send(embed=embed)
     )
