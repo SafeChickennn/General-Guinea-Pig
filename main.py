@@ -1255,7 +1255,7 @@ async def givexp(ctx, member: discord.Member, amount: int):
     user_data = cursor.fetchone()
     old_xp = user_data[0]
     old_rank = user_data[1]
-    old_tier = get_tier_from_xp(old_rank, old_xp)
+    old_tier = get_current_tier(old_rank, old_xp)
 
     # Add XP
     add_bonus_xp(member.id, amount)
@@ -1264,7 +1264,7 @@ async def givexp(ctx, member: discord.Member, amount: int):
     cursor.execute("SELECT xp FROM users WHERE user_id = ?", (member.id,))
     new_xp = cursor.fetchone()[0]
     new_rank = get_rank_from_xp(new_xp)
-    new_tier = get_tier_from_xp(new_rank, new_xp)
+    new_tier = get_current_tier(new_rank, new_xp)
 
     # Update rank role if rank changed
     if new_rank != old_rank:
