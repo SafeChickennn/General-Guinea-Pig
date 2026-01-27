@@ -144,19 +144,19 @@ RANK_COLORS = {
 # XP thresholds for ranks
 RANK_XP_THRESHOLDS = {
     1: (0, 150),
-    2: (150, 650),
-    3: (650, 1600),
-    4: (1600, 3200),
+    2: (150, 599),
+    3: (600, 1599),
+    4: (1600, 3199),
     5: (3200, float("inf"))
 }
 
 # Tier thresholds within ranks
 RANK_TIERS = {
     "Initiate": [],
-    "Explorer": [300, 450],
-    "Connector": [800, 1000, 1200, 1400],
-    "Leader": [1900, 2200, 2500, 2800],
-    "Master": [4200, 5200, 6200, 7200]
+    "Explorer": [150, 300, 450],
+    "Connector": [600, 800, 1000, 1200, 1400],
+    "Leader": [1600, 1900, 2200, 2500, 2800],
+    "Master": [3200, 4200, 5200, 6200, 7200]
 }
 
 LEADERBOARD_COLORS = {
