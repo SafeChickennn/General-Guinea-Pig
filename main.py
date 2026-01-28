@@ -1012,35 +1012,6 @@ async def on_reaction_add(reaction, user):
 # STREAK HANDLING
 # ========================
 
-def update_streak(user_id):
-    cursor.execute("SELECT last_quest_date, streak FROM users WHERE user_id = ?", (user_id,))
-    result = cursor.fetchone()
-    if not result:
-        return 1
-    
-    last_date, streak = result
-    today = today_est()
-
-    if last_date:
-        if last_date == today:
-            return streak
-        elif (today - last_date).days == 1:
-            streak += 1
-
-        else:
-            streak = 1
-
-    else:
-        streak = 1
-
-    cursor.execute(
-        "UPDATE users SET streak = ?, last_quest_date = ? WHERE user_id = ?",
-        (streak, today.isoformat(), user_id)
-    )
-    conn.commit()
-
-    return streak
-
 @tasks.loop(minutes=10)
 async def reset_missed_streaks():
     today = today_est()
@@ -1054,6 +1025,38 @@ async def reset_missed_streaks():
     """, (today,))
 
     conn.commit()
+
+def update_streak(user_id):
+    cursor.execute(
+        "SELECT last_quest_date, streak FROM users WHERE user_id = ?",
+        (user_id,)
+    )
+    result = cursor.fetchone()
+    if not result:
+        return 1
+
+    last_date, streak = result
+    today = datetime.now(TZ).date()
+
+    if last_date:
+        last_date = datetime.strptime(last_date, "%Y-%m-%d").date()
+
+        if last_date == today:
+            return streak
+
+        if (today - last_date).days == 1:
+            streak += 1
+        else:
+            streak = 1
+    else:
+        streak = 1
+
+    cursor.execute(
+        "UPDATE users SET streak = ?, last_quest_date = ? WHERE user_id = ?",
+        (streak, today.isoformat(), user_id)
+    )
+    conn.commit()
+    return streak
 
 @reset_missed_streaks.before_loop
 async def before_reset_missed_streaks():
