@@ -1019,11 +1019,9 @@ def update_streak(user_id):
         return 1
     
     last_date, streak = result
-    today = datetime.now(TZ).date()
+    today = today_est()
 
     if last_date:
-        last_date = datetime.strptime(last_date, "%Y-%m-%d").date()
-
         if last_date == today:
             return streak
         elif (today - last_date).days == 1:
@@ -1043,7 +1041,7 @@ def update_streak(user_id):
 
     return streak
 
-@tasks.loop(hours=24)
+@tasks.loop(minutes=10)
 async def reset_missed_streaks():
     today = today_est()
 
@@ -1052,9 +1050,19 @@ async def reset_missed_streaks():
         SET streak = 0
         WHERE last_quest_date IS NOT NULL
         AND DATE(last_quest_date) < DATE(?)
+        AND streak != 0
     """, (today,))
-    
+
     conn.commit()
+
+@reset_missed_streaks.before_loop
+async def before_reset_missed_streaks():
+    await bot.wait_until_ready()
+    now = datetime.now(TZ)
+    next_midnight = (now + timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    await asyncio.sleep((next_midnight - now).total_seconds())
 
 # ========================
 # RANK SELECTION VIEW
@@ -1127,6 +1135,10 @@ async def on_ready():
 
     if not quest_notifications.is_running():
         quest_notifications.start()
+
+    if not reset_missed_streaks.is_running():
+        reset_missed_streaks.start()
+
 
 
 
