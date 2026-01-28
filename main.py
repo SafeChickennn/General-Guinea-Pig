@@ -194,18 +194,18 @@ QUEST_POOLS = {
         "Read or write for 15 minutes in a public place.",
         "Write 5 sentences about how you felt being around people today.",
         "Use someone's name after they introduce themselves.",
-        "Thank 3 service workers with genuine presence."
+        "Thank a service worker."
     ],
     "explorer_1": [
         "Ask a stranger for the time.",
         "Comment about your surroundings to a stranger.",
-        "Ask someone how their day is going."
+        "Ask a stranger/acquaintance how their day is going."
     ],
     "explorer_2": [
         "Have a 30-second conversation with a barista/cashier",
         "Ask someone for a food or coffee recommendation.",
-        "Talk to someone in a queue.",
-        "Ask someone what they're reading.",
+        "Talk to someone while waiting in a queue.",
+        "Ask someone what they're reading/watching.",
         "Ask someone about a good place to go nearby.",
         "Ask a stranger for directions (even if you know).",
         "Ask someone their weekend plans."
@@ -218,8 +218,8 @@ QUEST_POOLS = {
     "connector_2": [
         "Insert yourself into an existing group conversation.",
         "Share a small personal truth with someone new.",
-        "Sit next to a stranger and start a conversation.",
-        "Invite someone for a short coffee.",
+        "Replace texts with voice notes for a day.",
+        "Invite someone for a coffee.",
         "Give a compliment about someone's personality.",
         "Ask someone new about their passions.",
         "Tell a new short personal story to someone."
@@ -1019,16 +1019,19 @@ def update_streak(user_id):
         return 1
     
     last_date, streak = result
-    today = datetime.utcnow().date()
+    today = datetime.now(TZ).date()
 
     if last_date:
         last_date = datetime.strptime(last_date, "%Y-%m-%d").date()
-        delta_days = (today - last_date).days
 
-        if delta_days == 1:
+        if last_date == today:
+            return streak
+        elif (today - last_date).days == 1:
             streak += 1
-        elif delta_days > 1:
+
+        else:
             streak = 1
+
     else:
         streak = 1
 
@@ -1037,7 +1040,21 @@ def update_streak(user_id):
         (streak, today.isoformat(), user_id)
     )
     conn.commit()
+
     return streak
+
+@tasks.loop(hours=24)
+async def reset_missed_streaks():
+    today = today_est()
+
+    cursor.execute("""
+        UPDATE users
+        SET streak = 0
+        WHERE last_quest_date IS NOT NULL
+        AND DATE(last_quest_date) < DATE(?)
+    """, (today,))
+    
+    conn.commit()
 
 # ========================
 # RANK SELECTION VIEW
