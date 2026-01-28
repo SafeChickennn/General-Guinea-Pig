@@ -1248,27 +1248,27 @@ async def profile(ctx, member: discord.Member = None):
 # ========================
 
 @bot.command(name="lb")
-async def leaderboard(ctx, category: str):
+async def leaderboard(ctx):
     category = category.lower()
 
-    # Ensure all members exist in DB
     for member in ctx.guild.members:
         if not member.bot:
             get_user(member.id)
 
-    if category == "global":
-        cursor.execute("SELECT user_id, xp FROM users ORDER BY xp DESC")
-        results = cursor.fetchall()
+    cursor.execute("SELECT user_id, xp FROM users ORDER BY xp DESC")
+    results = cursor.fetchall()
 
-        embed = discord.Embed(title="🏆 Global Leaderboard", color=LEADERBOARD_COLORS.get(category, 0xFFFFFF)
+    embed = discord.Embed(title="🏆 Global Leaderboard", color=LEADERBOARD_COLORS.get(category, 0xFFFFFF)
     )
 
-        for index, (user_id, xp) in enumerate(results[:10], start=1):
-            member = ctx.guild.get_member(user_id)
-            name = member.display_name if member else f"User {user_id}"
-            embed.add_field(name=f"#{index} — {name}", value=f"{xp} XP", inline=False)
+    for index, (user_id, xp) in enumerate(results[:10], start=1):
+        member = ctx.guild.get_member(user_id)
+        name = member.display_name if member else f"User {user_id}"
+        embed.add_field(name=f"#{index} — {name}", value=f"{xp} XP", inline=False)
 
-        await ctx.send(embed=embed)
+    await ctx.send(embed=embed)
+
+    embed.set_footer(text=f"You are ranked #{user_rank}")
         return
 
 # ========================
