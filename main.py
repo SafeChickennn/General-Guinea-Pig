@@ -1269,7 +1269,8 @@ async def leaderboard(ctx):
     await ctx.send(embed=embed)
 
     embed.set_footer(text=f"You are ranked #{user_rank}")
-        return
+
+    return
 
 # ========================
 # ADMIN COMMAND
